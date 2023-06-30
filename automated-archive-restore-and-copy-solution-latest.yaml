@@ -1,0 +1,4485 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: An Amazon S3 Batch Operations based Solution to Automate Amazon S3 Bucket Archive Object Restore and Copy.
+Metadata:
+  License:
+    Description: >-
+      'MIT No Attribution
+
+      Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+      Permission is hereby granted, free of charge, to any person obtaining a copy of
+      this software and associated documentation files (the "Software"), to deal in
+      the Software without restriction, including without limitation the rights to
+      use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+      the Software, and to permit persons to whom the Software is furnished to do so.
+
+      THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+      IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+      FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+      COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+      IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+      CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.'
+
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+
+      -
+        Label:
+          default: "Archived Bucket and Object Details"
+        Parameters:
+          - ArchiveBucket
+          - ArchiveBucketPrefix
+          - IncludedObjectVersions
+          - ExistingArchiveStorageClass
+      -
+        Label:
+          default: "Destination Bucket and Prefix Parameters"
+        Parameters:
+          - DestinationBucket
+          - BucketForCopyDestinationPrefix
+
+      -
+        Label:
+          default: "Archive Restore Parameters"
+        Parameters:
+          - ArchiveObjectRestoreDays
+          - ArchiveRestoreTier
+
+      -
+        Label:
+          default: "Archive Copy Parameters"
+        Parameters:
+          - CopyMetadata
+          - CopyTagging
+          - StorageClass
+          
+      -
+        Label:
+          default: "Job Notification and Tracking"
+        Parameters:
+          - RecipientEmail
+          - JobSchedulerScheduleCronExpressions   
+
+      -
+        Label:
+          default: "Amazon S3 Batch Operations Job Paramaters"
+        Parameters:
+          - MaxInvKeys        
+                        
+      -
+        Label:
+          default: "AWS SDK Performance, Function, Chunksize and Retry Parameters for Archive Copying"
+        Parameters:
+          - TransferMaximumConcurrency
+          - SDKMaxPoolConnections
+          - SDKMaxErrorRetries
+          - MultipartChunkSize  
+          - CopyFunctionReservedConcurrency 
+
+             
+
+
+
+    ParameterLabels:
+      DestinationBucket:
+        default: "Destination Bucket"
+      BucketForCopyDestinationPrefix:
+        default: "Destination Bucket Prefix"
+
+
+Parameters:
+
+  BucketForCopyDestinationPrefix:
+    Description: Please specify the Destination Bucket Prefix or Path without the starting or trailing "/", Leave Blank to Retain Original Path
+    Type: String
+    MinLength: '0'
+    MaxLength: '1024'
+
+  JobSchedulerScheduleCronExpressions:
+    Description: Specify how often the Eventbridge invokes the Job Scheduler worker function
+    Type: String
+    MinLength: '1'
+    MaxLength: '1024'
+    ConstraintDescription: Value must be a Valid Eventbridge Cron Expression!
+    Default: rate(4 hours)
+    AllowedValues:
+      - rate(4 hours)
+      - rate(2 hours)
+
+  ArchiveObjectRestoreDays:
+    Type: Number
+    MinValue: 1
+    MaxValue: 10
+    ConstraintDescription: Please Choose an Appropriate Value
+    Default: '3'
+
+  ArchiveRestoreTier:
+    Type: String
+    ConstraintDescription: Please Choose Valid Restore Tier Values Only
+    Default: BULK
+    AllowedValues:
+      - STANDARD
+      - BULK
+
+  ArchiveBucket:
+    Description: Please enter the name of the bucket containing the Archived Objects
+    Type: String
+    MinLength: '3'
+    MaxLength: '63'
+
+  ArchiveBucketPrefix:
+    Description: Please specify the Prefix you want to restore in your Archive Bucket, add a trailing "/" for objects under the Prefix. Leave blank to restore the whole bucket
+    Type: String
+    MinLength: '0'
+    MaxLength: '1024'
+
+  DestinationBucket:
+    Description: Please enter the name of the bucket where the archived objects will be copied to
+    Type: String
+    MinLength: '3'
+    MaxLength: '63'
+
+  TransferMaximumConcurrency:
+    Description: The maximum number of concurrent requests SDK uses
+    Type: Number
+    MinValue: 10
+    MaxValue: 940    
+    Default: 150
+    ConstraintDescription: Concurrent Requests Value must be a Valid Integer and within the range of 10 to 940
+
+  SDKMaxPoolConnections:
+    Description: The maximum number of connections SDK keeps in a connection pool
+    Type: Number
+    MinValue: 10
+    MaxValue: 940    
+    Default: 150
+    ConstraintDescription: Concurrent Requests Value must be a Valid Integer and within the range of 10 to 940
+
+  SDKMaxErrorRetries:
+    Description: The number of SDK error retries
+    Type: Number
+    MinValue: 5
+    MaxValue: 100
+    Default: 100
+    ConstraintDescription: SDK Retries Value must be within the range of 5 to 100
+
+  MultipartChunkSize:
+    Description: Multipart Chunk size in bytes (MB*1024*1024) that the SDK uses for multipart transfers.
+    Type: String
+    Default: 16777216
+    MinLength: '1'
+    MaxLength: '10'
+    AllowedPattern: '[1-9][0-9]*'
+    ConstraintDescription: Multipart Chunk size Value must be a Valid Integer!
+
+  CopyMetadata:
+    AllowedValues:
+      - Enable  # Copies metadata. This predefined configuration is a Requirement!
+    Description: Enables copying source object metadata to destination and Source Storage Class Check
+    Type: String
+    Default: Enable
+
+  CopyTagging:
+    AllowedValues:
+      - Enable  # Copies Tags
+      - Disable  # Do not copy Tags
+    Description: Please Choose to enable or disable copying source object tags to destination
+    Type: String
+
+  StorageClass:
+    AllowedValues:
+      - STANDARD
+      - STANDARD_IA
+      - ONEZONE_IA
+      - INTELLIGENT_TIERING
+      - GLACIER_IR
+    Description: Please Choose your desired S3 Storage-Class for the Object Copy
+    Default: STANDARD
+    Type: String
+
+  MaxInvKeys:
+    AllowedValues:
+      - 1000000
+      - 100000
+      - 10000
+      - 1000
+      - 100
+      - 10
+    Description: Please choose the maximum number of keys in each manifest
+    Type: String
+    Default: 1000000
+
+
+  ExistingArchiveStorageClass:
+    AllowedValues:
+      - GLACIER
+      - DEEP_ARCHIVE
+      - GLACIER_AND_DEEP_ARCHIVE
+    Description: Please choose the existing storage class of your Archive
+    Type: String
+
+  IncludedObjectVersions:
+    AllowedValues:
+      - Current
+      - All
+    Description: Please choose if you want to restore Current Version Only or All Object Versions
+    Type: String
+
+  RecipientEmail:
+    Description: Please enter the Email address to receive Job notifications. Please remember to Confirm the Subsciption
+    Type: String
+    MinLength: '5'
+    MaxLength: '150'
+
+
+  CopyFunctionReservedConcurrency:
+    Description: Choose Unreserved to allow S3 Batch utilize up to 1,000 concurrency, or optionally specify the reserved concurrency for the Lambda function S3 Batch Operations Invokes to perform Copy operations. Note, setting a value impacts the concurrency pool available to other functions. 
+    Type: String
+    Default: Unreserved
+    ConstraintDescription: Value must be within the range of 0 to 200
+    AllowedValues:
+      - Unreserved
+      - 200
+      - 150
+      - 100
+      - 50
+      - 10
+   
+
+
+Conditions:
+     NoFunctionConcurrency: !Equals [!Ref CopyFunctionReservedConcurrency, Unreserved]        
+
+
+
+Mappings:
+  Parameters:
+    Values:
+      inventorysch: Weekly
+      gfrstddelay: 8
+      gfrbulkdelay: 15
+      gdastddelay: 15
+      gdabulkdelay: 51
+  ManifestBucketinfo:
+    manifest:
+      csvnoversionid: restore-and-copy/csv-manifest/no-version-id/
+      csvwithversionid: restore-and-copy/csv-manifest/with-version-id/
+    batchopsreport:
+      restorejob: batch-ops-report/restore
+      copyjob: batch-ops-report/copy
+    s3events:
+      eventoneid: 'job-report-for-restore'
+      eventoneprefixvalue: 'batch-ops-report/restore/'
+      eventonesuffixvalue: '.json'
+      eventtwoid: 'initiate-restore-worker'
+      eventtwoprefixvalue: 'restore-and-copy/csv-manifest/'
+      eventtwosuffixvalue: '.csv'
+      eventthreeid: 'job-report-for-copy'
+      eventthreeprefixvalue: 'batch-ops-report/copy/'
+      eventthreesuffixvalue: '.json'
+      eventfourid: 'initiate-state-function'
+      eventfoursuffixvalue: '.txt'
+      bucketpatha: 'batch-ops-report/copy/'
+      bucketpathb: 'batch-ops-report/restore/'
+      bucketpathc: 'restore-and-copy/csv-manifest/no-version-id/'
+      bucketpathd: 'restore-and-copy/csv-manifest/with-version-id/'
+
+
+Resources:
+
+  S3AutoRestoreMigrateTopic:
+    DependsOn:
+      - CheckBucketExists   
+    Type: AWS::SNS::Topic
+
+
+  S3AutoRestoreMigrateTopicSubscription:
+    DependsOn:
+      - CheckBucketExists   
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref RecipientEmail
+      Protocol: email
+      TopicArn: !Ref S3AutoRestoreMigrateTopic
+
+  S3AutoRestoreMigrateDynamoDBTable:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::DynamoDB::Table'
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TimeToLiveSpecification:
+          AttributeName: item_expiration
+          Enabled: true
+      AttributeDefinitions:
+        - AttributeName: restore_job_id
+          AttributeType: S
+        - AttributeName: restore_job_status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: restore_job_id
+          KeyType: HASH
+        - AttributeName: restore_job_status
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 3
+        WriteCapacityUnits: 3
+
+
+  S3AutoRestoreMigrateJobSchedulerEventRule:
+    DependsOn:
+      - CheckBucketExists   
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "ScheduledRule"
+      ScheduleExpression: !Ref JobSchedulerScheduleCronExpressions
+      State: "ENABLED"
+      Targets:
+        -
+          Arn: !GetAtt
+            - S3AutoRestoreMigrateJobSchedulerWorker
+            - Arn
+          Id: "S3AutoRestoreMigrateJobSchedulerWorker"
+
+############################# Lambda Invocation Permissions ############################################
+
+  S3AutoRestoreMigrateEventsPermissionToInvokeLambda:
+    DependsOn:
+      - CheckBucketExists   
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref S3AutoRestoreMigrateJobSchedulerWorker
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt
+        - S3AutoRestoreMigrateJobSchedulerEventRule
+        - Arn
+
+  LambdaInvokePermission:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      FunctionName: !GetAtt S3AutoRestoreMigrateRestoreWorker.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub 'arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}'
+
+
+  LambdaInvokePermission2:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      FunctionName: !GetAtt S3AutoRestoreMigrateJobTrackerWorker.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub 'arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}'
+
+
+  LambdaInvokePermission3:
+    Type: 'AWS::Lambda::Permission'
+    DependsOn:
+      - S3AutoRestoreMigrateS3Bucket
+      - CheckBucketExists 
+    Properties:
+      FunctionName: !GetAtt S3AutoRestoreMigrateTriggerStateMachineFunction.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub 'arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}'
+
+############################# Lambda Invocation Permissions End ############################################
+
+################################## Custom Resources ##############################################################
+
+################################ CheckBucketExists ######################################################
+
+
+  CheckBucketExists:
+    Type: 'Custom::LambdaTrigger'
+    Properties:
+      ServiceToken: !GetAtt CheckBucketExistsLambdaFunction.Arn
+      bucketexists: !Ref ArchiveBucket
+
+
+  CheckBucketExistsIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetBucketLocation'
+                Resource: !Sub arn:${AWS::Partition}:s3:::${ArchiveBucket}
+
+
+  CheckBucketExistsLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Handler: index.lambda_handler
+      Role: !GetAtt CheckBucketExistsIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      MemorySize: 128
+      Code:
+        ZipFile: |
+            import json
+            import cfnresponse
+            import logging
+            import os
+            import boto3
+            from botocore.exceptions import ClientError
+            from botocore.client import Config
+
+            # Enable debugging for troubleshooting
+            # boto3.set_stream_logger("")
+
+
+            # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+
+
+            # Define Environmental Variables
+            my_region = str(os.environ['AWS_REGION'])
+
+
+            # Set SDK paramters
+            config = Config(retries = {'max_attempts': 5})
+
+            # Set variables
+            # Set Service Parameters
+            s3Client = boto3.client('s3', config=config, region_name=my_region)
+
+
+            def check_bucket_exists(bucket):
+                logger.info(f"Checking if Archive Bucket Exists")
+                try:
+                    check_bucket = s3Client.get_bucket_location(
+                        Bucket=bucket,
+                    )
+                except ClientError as e:
+                    logger.error(e)
+                    raise
+                else:
+                    logger.info(f"Bucket {bucket}, exists, proceeding with deployment ...")
+                    return check_bucket            
+
+
+            def lambda_handler(event, context):
+              # Define Environmental Variables
+              s3Bucket  = event.get('ResourceProperties').get('bucketexists')
+
+              logger.info(f'Event detail is: {event}')
+
+              if event.get('RequestType') == 'Create':
+                # logger.info(event)
+                try:
+                  logger.info("Stack event is Create, checking specified Bucket has Object Lock Enabled...")
+                  check_bucket_exists(s3Bucket)
+                  responseData = {}
+                  responseData['message'] = "Successful"
+                  logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+                except Exception as e:
+                  logger.error(e)
+                  responseData = {}
+                  responseData['message'] = str(e)
+                  failure_reason = str(e) 
+                  logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData, reason=failure_reason)
+
+
+              elif event.get('RequestType') == 'Delete' or event.get('RequestType') == 'Update':
+                logger.info(event)
+                try:
+                  logger.info(f"Stack event is Delete or Update, nothing to do....")
+                  responseData = {}
+                  responseData['message'] = "Completed"
+                  logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+                except Exception as e:
+                  logger.error(e)
+                  responseData = {}
+                  responseData['message'] = str(e)
+                  logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData)                  
+
+
+################################################ Code Ends ####################################################
+
+################################ StackNametoLower #######################################################
+
+
+  StackNametoLower:
+    Type: Custom::NametoLower
+    Properties:
+      ServiceToken: !GetAtt NametoLower.Arn
+      stackname: !Ref AWS::StackName    
+
+
+  NametoLowerIAMRole:
+    DependsOn:
+      - CheckBucketExists  
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+
+
+  NametoLower:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Description: Enforces Lower case for Stackname
+      MemorySize: 128
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt NametoLowerIAMRole.Arn
+      Timeout: 30
+      Code:
+        ZipFile: |
+          import cfnresponse
+
+
+          def lambda_handler(event, context):
+              to_lower = event['ResourceProperties'].get('stackname', '').lower()
+              responseData = dict(change_to_lower=to_lower)
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+
+################################# Code Ends ############################################################
+
+
+###################### Start Function Invocations of Custom Resources #############################
+
+
+  InvokeCustomBackedLambda:
+    DependsOn:
+      - CheckBucketExists    
+    Type: Custom::InvokeCustomLambda
+    Properties:
+      ServiceToken: !GetAtt CreateBucketEventNotification.Arn
+      my_solution_bucket: !Ref S3AutoRestoreMigrateS3Bucket
+      bucket_event_destination_lambda: !GetAtt S3AutoRestoreMigrateJobTrackerWorker.Arn
+      bucket_event_destination_lambda_1: !GetAtt S3AutoRestoreMigrateRestoreWorker.Arn
+      bucket_event_destination_lambda_state_function: !GetAtt S3AutoRestoreMigrateTriggerStateMachineFunction.Arn
+
+
+  LambdaTrigger:
+    DependsOn:
+      - CheckBucketExists    
+    Type: 'Custom::LambdaTrigger'
+    Properties:
+      ServiceToken: !GetAtt S3AutoRestoreMigrateCustomResourceLambdaFunction.Arn
+      MyBucketwithArchives: !Ref ArchiveBucket
+      ArchiveBucketPrefix: !Ref ArchiveBucketPrefix
+      MyS3InventoryDestinationBucket: !Ref S3AutoRestoreMigrateS3Bucket
+
+  LambdaTrigger2:
+    Type: 'Custom::LambdaTrigger'
+    Properties:
+      ServiceToken: !GetAtt RemoveS3InventoryCustomResourceLambdaFunction.Arn
+      MyBucketwithArchives: !Ref ArchiveBucket
+   
+
+#################### Custom Resource Invocation End ########################
+
+
+  S3AutoRestoreMigrateS3Bucket:
+    DependsOn:
+      - CheckBucketExists    
+    Type: 'AWS::S3::Bucket'
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpirationRule
+            Status: Enabled
+            ExpirationInDays: 180
+            NoncurrentVersionExpiration:
+                NoncurrentDays: 3
+          - Id: delete-incomplete-mpu
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1       
+
+
+  BucketPolicyForInventoryBucket:
+     Type: AWS::S3::BucketPolicy
+     Properties:
+       Bucket: !Ref S3AutoRestoreMigrateS3Bucket
+       PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+              - Effect: Allow          
+                Principal:
+                    Service: s3.amazonaws.com
+                Action:
+                - s3:PutObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}/*
+                Condition:
+                    ArnLike:
+                        aws:SourceArn: !Sub arn:${AWS::Partition}:s3:::${ArchiveBucket}
+                    StringEquals:
+                        aws:SourceAccount: !Sub '${AWS::AccountId}'
+                        s3:x-amz-acl: bucket-owner-full-control                 
+
+
+  S3BatchOperationsServiceIamRole:
+    DependsOn:
+      - S3AutoRestoreMigrateS3Bucket
+      - CheckBucketExists 
+    Type: 'AWS::IAM::Role'
+    Properties:
+      Policies:
+        - PolicyName: S3BatchOperationsServiceIamRolePolicy0
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 's3:GetObject'
+                  - 's3:GetObjectVersion'
+                  - 's3:GetBucketLocation'
+                  - 's3:PutObject'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}/*
+                Effect: Allow
+              - Action:
+                  - 'lambda:InvokeFunction'
+                Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${S3BatchCopyLambdafunction}*'
+                Effect: Allow
+              - Action:
+                  - 's3:RestoreObject'
+                  - 's3:GetObject'
+                  - 's3:GetObjectVersion'
+                  - 's3:GetBucketLocation'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${ArchiveBucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${ArchiveBucket}/*
+                Effect: Allow
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: batchoperations.s3.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+########################## S3 Restore Worker Function ####################################
+
+  S3AutoRestoreMigrateRestoreWorkerIAMRole:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: GrantFunctioAdditionalPerm
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 's3:ListBucket'
+                  - 's3:GetObject'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}/*
+                Effect: Allow
+              - Action:
+                  - 's3:DescribeJob'
+                  - 's3:ListJobs'
+                  - 's3:PutJobTagging'
+                  - 's3:CreateJob'
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - 'iam:PassRole'
+                Resource: !GetAtt S3BatchOperationsServiceIamRole.Arn
+                Effect: Allow
+              - Action:
+                  - 'sns:Publish'
+                Resource: !Ref S3AutoRestoreMigrateTopic
+                Effect: Allow
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+
+
+  S3AutoRestoreMigrateRestoreWorker:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          archive_restore_days: !Ref ArchiveObjectRestoreDays
+          archive_restore_tier: !Ref ArchiveRestoreTier
+          s3_bucket: !Sub ${ArchiveBucket}
+          batch_ops_report_bucket: !Ref S3AutoRestoreMigrateS3Bucket
+          batch_ops_role: !GetAtt S3BatchOperationsServiceIamRole.Arn
+          my_current_region: !Sub ${AWS::Region}
+          my_account_id: !Sub ${AWS::AccountId}
+          my_sns_topic_arn: !Ref S3AutoRestoreMigrateTopic
+          batch_ops_restore_report_prefix: !FindInMap
+              - ManifestBucketinfo
+              - batchopsreport
+              - restorejob
+      Handler: index.lambda_handler
+      Role: !GetAtt S3AutoRestoreMigrateRestoreWorkerIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 300
+      Code:
+        ZipFile: |
+          from urllib import parse
+          import boto3
+          import botocore
+          import os
+          import json
+          import logging
+          from botocore.exceptions import ClientError
+
+          # Set up logging
+          logger = logging.getLogger(__name__)
+          logger.setLevel('INFO')
+
+          # Enable Verbose logging for Troubleshooting
+          # boto3.set_stream_logger("")
+
+          # Define Lambda Environmental Variable
+          my_role_arn = str(os.environ['batch_ops_role'])
+          report_bucket_name = str(os.environ['batch_ops_report_bucket'])
+          # Archive Restoration Details ###############################################
+          restore_expiration = int(os.environ['archive_restore_days'])
+          restore_tier = str(os.environ['archive_restore_tier'])
+          accountId = str(os.environ['my_account_id'])
+          my_region = str(os.environ['my_current_region'])
+          my_sns_topic_arn = str(os.environ['my_sns_topic_arn'])
+          my_s3_bucket = str(os.environ['s3_bucket'])
+
+
+          # Specify variables #############################
+
+          # Job Manifest Details ################################
+          job_manifest_format = 'S3BatchOperations_CSV_20180820'  # S3InventoryReport_CSV_20161130
+
+
+          # Job Report Details ############################
+          report_prefix = str(os.environ['batch_ops_restore_report_prefix'])
+          report_format = 'Report_CSV_20180820'
+          report_scope = 'AllTasks'
+
+          # Construct ARNs ############################################
+          report_bucket_arn = 'arn:aws:s3:::' + report_bucket_name
+
+          # Initiate Service Clients ###################
+          s3Client = boto3.client('s3', region_name=my_region)
+          s3ControlClient = boto3.client('s3control', region_name=my_region)
+          sns = boto3.client('sns', region_name=my_region)
+
+          # SNS Message Function
+          def send_sns_message(sns_topic_arn, sns_message):
+              logger.info("Sending SNS Notification Message......")
+              sns_subject = 'Notification from AutoRestoreMigrate Solution'
+              try:
+                  response = sns.publish(TopicArn=sns_topic_arn, Message=sns_message, Subject=sns_subject)
+              except ClientError as e:
+                  logger.error(e)
+
+          # Retrive Manifest ETag
+          def get_manifest_etag(manifest_s3_bucket, manifest_s3_key):
+              # Get manifest key ETag ####################################
+              try:
+                  manifest_key_object_etag = s3Client.head_object(Bucket=manifest_s3_bucket, Key=manifest_s3_key)['ETag']
+              except ClientError as e:
+                  logger.error(e)
+              else:
+                  logger.info(manifest_key_object_etag)
+                  return manifest_key_object_etag
+
+
+          # S3 Batch Restore Job Function
+
+          def s3_batch_ops_restore(manifest_bucket, manifest_key):
+              logger.info("Calling the Amazon S3 Batch Operation Restore API")
+
+              # Construct ARNs ############################################
+              manifest_bucket_arn = 'arn:aws:s3:::' + manifest_bucket
+              manifest_key_arn = 'arn:aws:s3:::' + manifest_bucket + '/' + manifest_key
+              # Get manifest key ETag ####################################
+              manifest_key_object_etag = get_manifest_etag(manifest_bucket, manifest_key)
+
+              # Set Description #
+              my_job_description = f"Restore Job by AutoRestoreMigrate Solution for S3Bucket: {my_s3_bucket}"                
+
+              # Set Manifest format and Specify Manifest Fields #
+              manifest_format = None
+              manifest_fields = None
+              manifest_fields_count = None
+              if "restore-and-copy/csv-manifest/with-version-id/" in manifest_key:
+                  logger.info("Set Format to CSV and Use Version ID in manifest")
+                  manifest_format = 'S3BatchOperations_CSV_20180820'
+                  manifest_fields = ['Bucket', 'Key', 'VersionId']
+                  manifest_fields_count = str(len(manifest_fields))
+              elif "restore-and-copy/csv-manifest/no-version-id/" in manifest_key:
+                  logger.info("Set Format to CSV and Don't use Version ID in Manifest")
+                  manifest_format = 'S3BatchOperations_CSV_20180820'
+                  manifest_fields = ['Bucket', 'Key']
+                  manifest_fields_count = str(len(manifest_fields))
+
+              my_bops_restore_kwargs = {
+
+                  'AccountId': accountId,
+                  'ConfirmationRequired': False,
+                  'Operation': {
+                      'S3InitiateRestoreObject': {
+                          'ExpirationInDays': restore_expiration,
+                          'GlacierJobTier': restore_tier
+                      }
+                  },
+                  'Report': {
+                      'Bucket': report_bucket_arn,
+                      'Format': report_format,
+                      'Enabled': True,
+                      'Prefix': report_prefix,
+                      'ReportScope': report_scope
+                  },
+                  'Manifest': {
+                      'Spec': {
+                          'Format': manifest_format,
+                          'Fields': manifest_fields
+                      },
+                      'Location': {
+                          'ObjectArn': manifest_key_arn,
+                          'ETag': manifest_key_object_etag
+                      }
+                  },
+                  'Priority': 10,
+                  'RoleArn': my_role_arn,
+                  'Description' : my_job_description,
+                  'Tags': [
+                      {
+                          'Key': 'auto-restore-copy',
+                          'Value': manifest_fields_count
+                      },
+                  ]
+              }
+
+              try:
+                  response = s3ControlClient.create_job(**my_bops_restore_kwargs)
+                  logger.info(f"JobID is: {response['JobId']}")
+                  logger.info(f"S3 RequestID is: {response['ResponseMetadata']['RequestId']}")
+                  logger.info(f"S3 Extended RequestID is:{response['ResponseMetadata']['HostId']}")
+                  return response['JobId']
+              except ClientError as e:
+                  logger.error(e)
+
+
+          def lambda_handler(event, context):
+              logger.info(event)
+              s3Bucket = str(event['Records'][0]['s3']['bucket']['name'])
+              logger.info(s3Bucket)
+              s3Key = parse.unquote_plus(event['Records'][0]['s3']['object']['key'], encoding='utf-8')
+              logger.info(s3Key)
+              job_id = s3_batch_ops_restore(s3Bucket, s3Key)
+              my_sns_message = f'Restore Job {job_id} Successfully Submitted to Amazon S3 Batch Operation'
+              send_sns_message(my_sns_topic_arn, my_sns_message)
+
+
+
+
+##################################### Code Ends  ######################################################
+
+
+########################## S3 Restore Worker Function ####################################
+
+  RestoreWorker2FunctionIAMRole:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: GrantFunctioAdditionalPerm
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 's3:ListBucket'
+                  - 's3:GetObject'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}/*
+                Effect: Allow
+              - Action:
+                  - 's3:DescribeJob'
+                  - 's3:ListJobs'
+                  - 's3:PutJobTagging'
+                  - 's3:CreateJob'
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - 'iam:PassRole'
+                Resource: !GetAtt S3BatchOperationsServiceIamRole.Arn
+                Effect: Allow
+              - Action:
+                  - 'sns:Publish'
+                Resource: !Ref S3AutoRestoreMigrateTopic
+                Effect: Allow
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+
+
+  RestoreWorker2Function:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          archive_restore_days: !Ref ArchiveObjectRestoreDays
+          archive_restore_tier: !Ref ArchiveRestoreTier
+          s3_bucket: !Sub ${ArchiveBucket}
+          batch_ops_report_bucket: !Ref S3AutoRestoreMigrateS3Bucket
+          batch_ops_role: !GetAtt S3BatchOperationsServiceIamRole.Arn
+          my_current_region: !Sub ${AWS::Region}
+          my_account_id: !Sub ${AWS::AccountId}
+          my_sns_topic_arn: !Ref S3AutoRestoreMigrateTopic
+          batch_ops_restore_report_prefix: !FindInMap
+              - ManifestBucketinfo
+              - batchopsreport
+              - restorejob
+      Handler: index.lambda_handler
+      Role: !GetAtt RestoreWorker2FunctionIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 300
+      Code:
+        ZipFile: |
+          from urllib import parse
+          import boto3
+          import botocore
+          import os
+          import json
+          import logging
+          from botocore.exceptions import ClientError
+
+          # Set up logging
+          logger = logging.getLogger(__name__)
+          logger.setLevel('INFO')
+
+          # Enable Verbose logging for Troubleshooting
+          # boto3.set_stream_logger("")
+
+          # Define Lambda Environmental Variable
+          my_role_arn = str(os.environ['batch_ops_role'])
+          report_bucket_name = str(os.environ['batch_ops_report_bucket'])
+          # Archive Restoration Details ###############################################
+          restore_expiration = int(os.environ['archive_restore_days'])
+          restore_tier = str(os.environ['archive_restore_tier'])
+          accountId = str(os.environ['my_account_id'])
+          my_region = str(os.environ['my_current_region'])
+          my_sns_topic_arn = str(os.environ['my_sns_topic_arn'])
+          my_s3_bucket = str(os.environ['s3_bucket'])
+
+
+          # Specify variables #############################
+
+          # Job Manifest Details ################################
+          job_manifest_format = 'S3BatchOperations_CSV_20180820'  # S3InventoryReport_CSV_20161130
+
+
+          # Job Report Details ############################
+          report_prefix = str(os.environ['batch_ops_restore_report_prefix'])
+          report_format = 'Report_CSV_20180820'
+          report_scope = 'AllTasks'
+
+          # Construct ARNs ############################################
+          report_bucket_arn = 'arn:aws:s3:::' + report_bucket_name
+
+          # Initiate Service Clients ###################
+          s3Client = boto3.client('s3', region_name=my_region)
+          s3ControlClient = boto3.client('s3control', region_name=my_region)
+          sns = boto3.client('sns', region_name=my_region)
+
+          # SNS Message Function
+          def send_sns_message(sns_topic_arn, sns_message):
+              logger.info("Sending SNS Notification Message......")
+              sns_subject = 'Notification from AutoRestoreMigrate Solution'
+              try:
+                  response = sns.publish(TopicArn=sns_topic_arn, Message=sns_message, Subject=sns_subject)
+              except ClientError as e:
+                  logger.error(e)
+
+          # Retrive Manifest ETag
+          def get_manifest_etag(manifest_s3_bucket, manifest_s3_key):
+              # Get manifest key ETag ####################################
+              try:
+                  manifest_key_object_etag = s3Client.head_object(Bucket=manifest_s3_bucket, Key=manifest_s3_key)['ETag']
+              except ClientError as e:
+                  logger.error(e)
+              else:
+                  logger.info(manifest_key_object_etag)
+                  return manifest_key_object_etag
+
+          # S3 Batch Restore Job Function
+
+          def s3_batch_ops_restore(manifest_bucket, manifest_key, num_manifest_fields):
+              logger.info("Calling the Amazon S3 Batch Operation Restore API")
+
+              # Construct ARNs ############################################
+              manifest_bucket_arn = 'arn:aws:s3:::' + manifest_bucket
+              manifest_key_arn = 'arn:aws:s3:::' + manifest_bucket + '/' + manifest_key
+              # Get manifest key ETag ####################################
+              manifest_key_object_etag = get_manifest_etag(manifest_bucket, manifest_key)
+
+              # Set Description #
+              my_job_description = f"Restore Job by AutoRestoreMigrate Solution for S3Bucket: {my_s3_bucket}"               
+
+              # Set Manifest format and Specify Manifest Fields #
+              manifest_format = 'S3BatchOperations_CSV_20180820'
+              manifest_fields = None
+              manifest_fields_count = None
+              if num_manifest_fields == 3:
+                  logger.info("Set Format to CSV and Use Version ID in manifest")
+                  manifest_fields = ['Bucket', 'Key', 'VersionId']
+                  manifest_fields_count = str(len(manifest_fields))
+              elif num_manifest_fields == 2:
+                  logger.info("Set Format to CSV and Don't use Version ID in Manifest")
+                  manifest_fields = ['Bucket', 'Key']
+                  manifest_fields_count = str(len(manifest_fields))
+
+
+              my_bops_restore_kwargs = {
+
+                  'AccountId': accountId,
+                  'ConfirmationRequired': False,
+                  'Operation': {
+                      'S3InitiateRestoreObject': {
+                          'ExpirationInDays': restore_expiration,
+                          'GlacierJobTier': restore_tier
+                      }
+                  },
+                  'Report': {
+                      'Bucket': report_bucket_arn,
+                      'Format': report_format,
+                      'Enabled': True,
+                      'Prefix': report_prefix,
+                      'ReportScope': report_scope
+                  },
+                  'Manifest': {
+                      'Spec': {
+                          'Format': manifest_format,
+                          'Fields': manifest_fields
+                      },
+                      'Location': {
+                          'ObjectArn': manifest_key_arn,
+                          'ETag': manifest_key_object_etag
+                      }
+                  },
+                  'Priority': 10,
+                  'RoleArn': my_role_arn,
+                  'Description' : my_job_description,
+                  'Tags': [
+                      {
+                          'Key': 'auto-restore-copy',
+                          'Value': manifest_fields_count
+                      },
+                  ]
+              }
+
+
+              try:
+                  response = s3ControlClient.create_job(**my_bops_restore_kwargs)
+                  logger.info(f"JobID is: {response['JobId']}")
+                  logger.info(f"S3 RequestID is: {response['ResponseMetadata']['RequestId']}")
+                  logger.info(f"S3 Extended RequestID is:{response['ResponseMetadata']['HostId']}")
+                  return response['JobId']
+              except ClientError as e:
+                  logger.error(e)
+
+
+          def lambda_handler(event, context):
+              logger.info(event)
+              s3Bucket = str(event['Records'][0]['s3']['bucket']['name'])
+              logger.info(s3Bucket)
+              s3Key = parse.unquote_plus(event['Records'][0]['s3']['object']['key'], encoding='utf-8')
+              logger.info(s3Key)
+              my_num_manifest_fields = int(event['Records'][0]['jobspec']['fields'])
+              job_id = s3_batch_ops_restore(s3Bucket, s3Key, my_num_manifest_fields)
+              my_job_group_id = str(event['Records'][0]['jobgroupid'])
+              my_sns_message = f'Restore Job {job_id} belonging to JobGroup {my_job_group_id} Successfully Submitted to Amazon S3 Batch Operation'
+              send_sns_message(my_sns_topic_arn, my_sns_message)
+              return {
+                  'statusCode': 200,
+                  'body': job_id,
+              }
+
+
+
+
+##################################### Code Ends  ######################################################
+
+
+
+########################## S3AutoRestore Copy Worker Function ####################################
+
+
+  S3AutoRestoreMigrateCopyWorkerIAMRole:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: GrantFunctioAdditionalPerm
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 's3:ListBucket'
+                  - 's3:GetObject'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}/*
+                Effect: Allow
+              - Action:
+                  - 's3:DescribeJob'
+                  - 's3:ListJobs'
+                  - 's3:PutJobTagging'
+                  - 's3:CreateJob'
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - 'iam:PassRole'
+                Resource: !GetAtt S3BatchOperationsServiceIamRole.Arn
+                Effect: Allow
+              - Action:
+                  - 'sns:Publish'
+                Resource: !Ref S3AutoRestoreMigrateTopic
+                Effect: Allow
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+  S3AutoRestoreMigrateCopyWorker:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64    
+      Environment:
+        Variables:
+          batch_ops_copy_report_bucket: !Ref S3AutoRestoreMigrateS3Bucket
+          batch_ops_copy_report_prefix:  !FindInMap
+              - ManifestBucketinfo
+              - batchopsreport
+              - copyjob
+          batch_ops_invoke_lambda: !Ref S3BatchCopyLambdafunction
+          batch_ops_role: !GetAtt S3BatchOperationsServiceIamRole.Arn
+          my_current_region: !Sub ${AWS::Region}
+          my_account_id: !Sub ${AWS::AccountId}
+          my_sns_topic_arn: !Ref S3AutoRestoreMigrateTopic
+          s3_bucket: !Sub ${ArchiveBucket}
+      Handler: index.lambda_handler
+      Role: !GetAtt S3AutoRestoreMigrateCopyWorkerIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          import json
+          import logging
+          import os
+          import boto3
+          import botocore
+          import jmespath
+          from botocore.exceptions import ClientError
+
+
+          # Set up logging
+          logger = logging.getLogger(__name__)
+          logger.setLevel('INFO')
+          # boto3.set_stream_logger("")
+
+          # Define Lambda Environmental Variable
+          my_role_arn = str(os.environ['batch_ops_role'])
+          report_bucket_name = str(os.environ['batch_ops_copy_report_bucket'])
+          bops_invoke_function_arn = str(os.environ['batch_ops_invoke_lambda'])
+          report_prefix = str(os.environ['batch_ops_copy_report_prefix'])
+          accountId = str(os.environ['my_account_id'])
+          my_region = str(os.environ['my_current_region'])
+          my_sns_topic_arn = str(os.environ['my_sns_topic_arn'])
+          my_s3_bucket = str(os.environ['s3_bucket'])
+
+
+          # Specify variables #############################
+
+          # Job Manifest Details ################################
+          job_manifest_format = 'S3BatchOperations_CSV_20180820'  # S3InventoryReport_CSV_20161130
+
+
+          # Job Report Details ############################
+          report_format = 'Report_CSV_20180820'
+          report_scope = 'AllTasks'
+
+          # Construct ARNs ############################################
+          report_bucket_arn = 'arn:aws:s3:::' + report_bucket_name
+
+          # Initiate Service Clients ###################
+          s3Client = boto3.client('s3', region_name=my_region)
+          s3ControlClient = boto3.client('s3control', region_name=my_region)
+          sns = boto3.client('sns', region_name=my_region)
+
+
+          # SNS Message Function
+          def send_sns_message(sns_topic_arn, sns_message):
+              sns_subject = 'Notification from AutoRestoreMigrate Solution'
+              logger.info("Sending SNS Notification Message......")
+              try:
+                  response = sns.publish(TopicArn=sns_topic_arn, Message=sns_message, Subject=sns_subject)
+              except ClientError as e:
+                  logger.error(e)
+
+
+          def lambda_handler(event, context):
+              logger.info(event)
+              manifest_s3Bucket = event.get('copymanifestbucket')
+              manifest_s3Key = event.get('copymanifestkey')
+              restore_job_id = event.get('restorejobid')
+              manifest_num_flds = str(event.get('nummanifestcols'))
+              logger.info(manifest_s3Bucket)
+              logger.info(manifest_s3Key)
+              logger.info(restore_job_id)
+              read_s3_object = get_read_s3_manifest(manifest_s3Bucket, manifest_s3Key)
+              copy_job_id_list = []
+              if read_s3_object:
+                  for r in read_s3_object:
+                      mybucket = r[0]
+                      mykey = r[1]
+                      logger.info(mybucket)
+                      logger.info(mykey)
+                      copy_job_id = s3_batch_ops_copy(mybucket, mykey, restore_job_id, manifest_num_flds)
+                      copy_job_id_list.append(copy_job_id)
+              else:
+                  logger.info("All Tasks have failed")
+
+              my_sns_message = f'Copy Job {copy_job_id_list} Successfully Submitted to Amazon S3 Batch Operation'
+              send_sns_message(my_sns_topic_arn, my_sns_message)
+
+
+              # Return Successful Response and JobID Information to Job Scheduler
+              return {
+                  'statusCode': 200,
+                  'body': copy_job_id_list,
+               }
+
+
+          def get_read_s3_manifest(bucket, key):
+              result_query = jmespath.compile("Results[?TaskExecutionStatus=='succeeded'].[Bucket,Key]")
+              get_response = s3Client.get_object(
+                  Bucket=bucket,
+                  Key=key,
+              )
+              display_s3_object = json.loads(get_response.get('Body').read().decode('utf-8'))
+              filtered_result = result_query.search(display_s3_object)
+              return filtered_result
+
+
+          def s3_batch_ops_copy(manifest_bucket, manifest_key, restore_job_to_tag, manifest_flds_num):
+              if manifest_flds_num == '3':
+                  manifest_fields = ['Bucket', 'Key', 'VersionId', 'Ignore', 'Ignore', 'Ignore', 'Ignore']
+              elif manifest_flds_num == '2':
+                  manifest_fields = ['Bucket', 'Key', 'Ignore', 'Ignore', 'Ignore', 'Ignore', 'Ignore']
+
+              # Set Description #
+              my_job_description = f"Lambda Invoke Copy Job by AutoRestoreMigrate Solution for S3Bucket: {my_s3_bucket}"    
+
+              # Construct ARNs ############################################
+              manifest_bucket_arn = 'arn:aws:s3:::' + manifest_bucket
+              manifest_key_arn = 'arn:aws:s3:::' + manifest_bucket + '/' + manifest_key
+              # Get manifest key ETag ####################################
+              manifest_key_object_etag = s3Client.head_object(Bucket=manifest_bucket, Key=manifest_key)['ETag']
+              logger.info(manifest_key_object_etag)
+
+              try:
+                  response = s3ControlClient.create_job(
+                      AccountId=accountId,
+                      ConfirmationRequired=False,
+                      Operation={
+                          'LambdaInvoke': {
+                              'FunctionArn': bops_invoke_function_arn
+                          }
+                      },
+                      Report={
+                          'Bucket': report_bucket_arn,
+                          'Format': report_format,
+                          'Enabled': True,
+                          'Prefix': report_prefix,
+                          'ReportScope': report_scope
+                      },
+                      Manifest={
+                          'Spec': {
+                              'Format': job_manifest_format,
+                              'Fields': manifest_fields
+                          },
+                          'Location': {
+                              'ObjectArn': manifest_key_arn,
+                              'ETag': manifest_key_object_etag
+                          }
+                      },
+                      Priority=10,
+                      RoleArn=my_role_arn,
+                      Description=my_job_description,
+                      Tags=[
+                          {
+                              'Key': 'auto-restore-copy',
+                              'Value': restore_job_to_tag
+                          },
+                      ]
+                  )
+                  logger.info(f"JobID is: {response.get('JobId')}")
+                  logger.info(f"S3 RequestID is: {response.get('ResponseMetadata').get('RequestId')}")
+                  logger.info(f"S3 Extended RequestID is:{response.get('ResponseMetadata').get('HostId')}")
+                  return response['JobId']
+              except ClientError as e:
+                  logger.error(e)
+
+
+
+##################################### Code Ends  ######################################################
+
+
+########################## S3AutoRestore Job Tracker Function ####################################
+
+
+
+  S3AutoRestoreMigrateJobTrackerWorkerIAMRole:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: GrantFunctioAdditionalPerm
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:UpdateItem'
+                Resource: !GetAtt S3AutoRestoreMigrateDynamoDBTable.Arn
+                Effect: Allow
+              - Action:
+                  - 's3:DescribeJob'
+                  - 's3:GetJobTagging'
+                  - 's3:ListJobs'
+                Resource: '*'
+                Effect: Allow
+              - Action:
+                  - 'sns:Publish'
+                Resource: !Ref S3AutoRestoreMigrateTopic
+                Effect: Allow
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+
+  S3AutoRestoreMigrateJobTrackerWorker:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64    
+      Environment:
+        Variables:
+          job_ddb: !Ref S3AutoRestoreMigrateDynamoDBTable
+          my_current_region: !Sub ${AWS::Region}
+          my_account_id: !Sub ${AWS::AccountId}
+          my_sns_topic_arn: !Ref S3AutoRestoreMigrateTopic
+      Handler: index.lambda_handler
+      Role: !GetAtt S3AutoRestoreMigrateJobTrackerWorkerIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import boto3
+          import botocore
+          import os
+          import logging
+          import datetime
+          from botocore.exceptions import ClientError
+          from urllib import parse
+
+          # Set up logging
+          logger = logging.getLogger(__name__)
+          logger.setLevel('INFO')
+
+          # Initiate Variables
+
+          # Lambda Environment Variables
+          accountId = str(os.environ['my_account_id'])
+          my_region = str(os.environ['my_current_region'])
+          my_sns_topic_arn = str(os.environ['my_sns_topic_arn'])
+
+          # Create Service Clients
+          dynamodb = boto3.resource('dynamodb', region_name=my_region)
+          s3ControlClient = boto3.client('s3control', region_name=my_region)
+          sns = boto3.client('sns', region_name=my_region)
+          s3Client = boto3.client('s3', region_name=my_region)
+          # Instantiate Table Resource
+          table = dynamodb.Table(str(os.environ['job_ddb']))
+
+
+          # SNS Message Function
+          def send_sns_message(sns_topic_arn, sns_message):
+              sns_subject = 'Notification from AutoRestoreMigrate Solution'
+              logger.info("Sending SNS Notification Message......")
+              try:
+                  response = sns.publish(TopicArn=sns_topic_arn, Message=sns_message, Subject=sns_subject)
+              except ClientError as e:
+                  logger.error(e)
+
+
+          def create_ddb_entry(
+                  job_id,
+                  job_status,
+                  job_operation,
+                  job_tier,
+                  job_arn,
+                  date_created,
+                  date_completed,
+                  number_of_tasks,
+                  tasks_succeeded,
+                  tasks_failed,
+                  bucket_name,
+                  key_name,
+                  job_details,
+                  num_manifest_fields,
+                  copy_job_status,
+          ):
+              logger.info("Create DDB Entry for S3 Batch Operation Job Tracker")
+              try:
+                  response = table.put_item(
+                      Item={
+                          'restore_job_id': job_id,
+                          'restore_job_status': job_status,
+                          'job_operation': job_operation,
+                          'restore_job_tier': job_tier,
+                          'restore_job_arn': job_arn,
+                          'restore__date_created': date_created,
+                          'restore_date_completed': date_completed,
+                          'restore_number_of_tasks': number_of_tasks,
+                          'restore_tasks_succeeded': tasks_succeeded,
+                          'restore_tasks_failed': tasks_failed,
+                          'copy_job_status': copy_job_status,
+                          'copy_manifest_s3bucket': bucket_name,
+                          'copy_manifest_skey': key_name,
+                          'restore_job_details': job_details,
+                          'num_manifest_fields': num_manifest_fields,
+                      }
+                  )
+                  logger.info("PutItem succeeded:")
+              except ClientError as e:
+                  print(e)
+
+
+          def s3_batch_describe_job(my_job_id):
+              response = s3ControlClient.describe_job(
+                  AccountId=accountId,
+                  JobId=my_job_id
+              )
+              job_desc = (response.get('Job'))
+              return job_desc
+
+
+          def ddb_update_item(restorejobid, restorejobstatus, updatedval1, updatedval2, updatedval3, updatedval4, updatedval5, updatedval6):
+              try:
+                  update_response = table.update_item(
+                      Key={
+                          'restore_job_id': restorejobid,
+                          'restore_job_status': restorejobstatus
+                      },
+                      UpdateExpression='SET copy_job_status = :val1, copy_number_of_tasks = :val2, copy_tasks_failed = :val3, '
+                                       'copy_tasks_succeeded = :val4, copy_job_details = :val5, item_expiration = :val6',
+                      ExpressionAttributeValues={
+                          ':val1': updatedval1,
+                          ':val2': updatedval2,
+                          ':val3': updatedval3,
+                          ':val4': updatedval4,
+                          ':val5': updatedval5,
+                          ':val6': updatedval6
+                      },
+                      ReturnValues="UPDATED_NEW"
+                  )
+                  logger.info(update_response.get('Attributes'))
+              except ClientError as e:
+                  logger.error(e)
+
+
+          def get_job_tagging(bops_job_id):
+              logger.info("Initiate GetJob Tagging")
+              try:
+                  get_job_tag_response = s3ControlClient.get_job_tagging(
+                      AccountId=accountId,
+                      JobId=bops_job_id
+                  )
+              except ClientError as e:
+                  logger.error(e)
+              else:
+                  logger.info("Successfully retrieved Job Tags")
+                  tag_key = get_job_tag_response.get('Tags')[0].get('Key')
+                  tag_value = get_job_tag_response.get('Tags')[0].get('Value')
+                  return tag_key, tag_value
+
+
+          def lambda_handler(event, context):
+              logger.info(event)
+              try:
+                  s3Bucket = str(event['Records'][0]['s3']['bucket']['name'])
+                  s3Key = parse.unquote_plus(event['Records'][0]['s3']['object']['key'], encoding='utf-8')
+                  logger.info(f"S3 Key is: {s3Key}")
+                  retrieve_job_id = s3Key.split('/')[-2]
+                  job_id = retrieve_job_id.replace('job-', '', 1)
+                  my_job_details = s3_batch_describe_job(job_id)
+                  logger.info(f"Batch Operation Job details: {my_job_details}")
+                  job_operation = list(my_job_details.get('Operation').keys())[0]
+                  job_status = my_job_details.get('Status')
+                  job_arn = my_job_details.get('JobArn')
+                  job_creation_datetime = str(my_job_details.get('CreationTime'))
+                  job_completion_datetime = str(my_job_details.get('TerminationDate'))
+                  number_of_tasks = my_job_details.get('ProgressSummary').get('TotalNumberOfTasks')
+                  number_of_fields = str(len(my_job_details.get('Manifest').get('Spec').get('Fields')))
+                  tasks_succeeded = my_job_details.get('ProgressSummary').get('NumberOfTasksSucceeded')
+                  tasks_failed = my_job_details.get('ProgressSummary').get('NumberOfTasksFailed')
+                  logger.info(f'Number of Tasks: {number_of_tasks}')
+                  logger.info(f'Tasks_succeeded: {tasks_succeeded}')
+                  logger.info(f'Tasks_failed: {tasks_failed}')
+                  # Set DDB Item Expiration to 60 days #
+                  num_days = 60
+                  my_item_expiration = int((datetime.datetime.now() + datetime.timedelta(num_days)).timestamp())
+                  # Set DDB Entry Status for Jobs based on Successful or Failed Status
+                  if job_status == 'Complete':
+                      if number_of_tasks == tasks_failed:
+                          set_copy_job_status = 'DoNotProceed'
+                          my_sns_message = f'All Tasks Failed! Please check the Batch Operations Job JobID {job_id} Completion Report in the Amazon S3 Console for more details.'
+                          send_sns_message(my_sns_topic_arn, my_sns_message)
+                      else:
+                          set_copy_job_status = 'NotStarted'
+                  job_details = str(my_job_details)
+                  # Only work on Tagged Jobs
+                  job_tag_key, job_tag_value = get_job_tagging(job_id)
+                  # Workflow for a Restore Job Creates an Entry in DynamoDB, Copy Job Updates existing Table ########
+                  if job_operation == 'S3InitiateRestoreObject':
+                      job_tier = my_job_details.get('Operation').get('S3InitiateRestoreObject').get('GlacierJobTier')
+                      logger.info(f"Restore Job Tier is: {job_tier}")
+                      # Starting Condition
+                      if job_tag_key == 'auto-restore-copy' and job_status == 'Complete':
+                          my_sns_message = f'Restore Job {job_id} Completed: {tasks_failed} failed out of {number_of_tasks}. Please check the Batch Operations Job JobID {job_id} in the Amazon S3 Console for more details.'
+                          send_sns_message(my_sns_topic_arn, my_sns_message)
+                          create_ddb_entry(
+                              job_id,
+                              job_status,
+                              job_operation,
+                              job_tier,
+                              job_arn,
+                              job_creation_datetime,
+                              job_completion_datetime,
+                              number_of_tasks,
+                              tasks_succeeded,
+                              tasks_failed,
+                              s3Bucket,
+                              s3Key,
+                              job_details,
+                              number_of_fields,
+                              set_copy_job_status
+                          )
+
+                      elif job_tag_key == 'auto-restore-copy' and job_status == 'Failed':
+                          my_sns_message = f'Restore Job {job_id} failed, please check the Batch Operations Job JobID {job_id} in the Amazon S3 Console for more details!'
+                          send_sns_message(my_sns_topic_arn, my_sns_message)
+
+                  elif job_operation == 'LambdaInvoke':
+                      if job_tag_key == 'auto-restore-copy' and job_status == 'Complete':
+                          logger.info("Updating the Database with Copy Job information!")
+                          my_sns_message = f'Copy Job {job_id} Completed: {tasks_failed} failed out of {number_of_tasks}. Please check the Batch Operations Job JobID {job_id} in the Amazon S3 Console for more details.'
+                          send_sns_message(my_sns_topic_arn, my_sns_message)
+                          ddb_update_item(job_tag_value, 'Complete', 'Complete', number_of_tasks, tasks_failed, tasks_succeeded,
+                                          job_details, my_item_expiration)
+
+                      elif job_tag_key == 'auto-restore-copy' and job_status == 'Failed':
+                          my_sns_message = f'Copy Job {job_id} failed, please check the Batch Operations Job JobID {job_id} in the Amazon S3 Console for more details!'
+                          send_sns_message(my_sns_topic_arn, my_sns_message)
+
+              except Exception as e:
+                  logger.error(e)
+                  raise
+
+
+
+
+##################################### Code Ends  ######################################################
+
+
+##########################  S3AutoRestore Job Scheduler Function ####################################
+
+
+  S3AutoRestoreMigrateJobSchedulerWorkerIAMRole:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: GrantFunctioAdditionalPerm
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'dynamodb:Scan'
+                  - 'dynamodb:UpdateItem'
+                Resource: !GetAtt S3AutoRestoreMigrateDynamoDBTable.Arn
+                Effect: Allow
+              - Action:
+                  - 'lambda:InvokeFunction'
+                Resource: !GetAtt S3AutoRestoreMigrateCopyWorker.Arn
+                Effect: Allow
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+
+  S3AutoRestoreMigrateJobSchedulerWorker:
+    DependsOn:
+      - CheckBucketExists   
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64    
+      Environment:
+        Variables:
+          copy_function: !Ref S3AutoRestoreMigrateCopyWorker
+          job_ddb: !Ref S3AutoRestoreMigrateDynamoDBTable
+          existing_archive_storage_class: !Ref ExistingArchiveStorageClass
+          gfr_standard_retrieval_delay: !FindInMap [ Parameters, Values, gfrstddelay ]
+          gfr_bulk_retrieval_delay: !FindInMap [ Parameters, Values, gfrbulkdelay ]
+          gda_standard_retrieval_delay: !FindInMap [ Parameters, Values, gdastddelay ]
+          gda_bulk_retrieval_delay: !FindInMap [ Parameters, Values, gdabulkdelay ]
+      Handler: index.lambda_handler
+      Role: !GetAtt S3AutoRestoreMigrateJobSchedulerWorkerIAMRole.Arn
+      Runtime: python3.9
+      MemorySize: 256
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import os
+          import datetime
+          from dateutil.tz import tzlocal
+          from dateutil import parser
+          import boto3
+          from boto3.dynamodb.conditions import Key, Attr
+          from botocore.exceptions import ClientError
+
+          # Set up logging
+          logger = logging.getLogger(__name__)
+          logger.setLevel('INFO')
+          # boto3.set_stream_logger("")
+
+          # Set Region #
+          my_region = str(os.environ['AWS_REGION'])
+
+          ### Initiate Service Client and DDB Table
+          dynamodb = boto3.resource('dynamodb', region_name=my_region)
+          client = boto3.client('lambda', region_name=my_region)
+
+          ### Initiate Variables ######
+          table = dynamodb.Table(str(os.environ['job_ddb']))
+          copy_function_name = str(os.environ['copy_function'])
+          my_archive_storage_class = str(os.environ['existing_archive_storage_class'])
+          my_gfr_standard_retrieval_delay = int(os.environ['gfr_standard_retrieval_delay'])
+          my_gfr_bulk_retrieval_delay = int(os.environ['gfr_bulk_retrieval_delay'])
+          my_gda_standard_retrieval_delay = int(os.environ['gda_standard_retrieval_delay'])
+          my_gda_bulk_retrieval_delay = int(os.environ['gda_bulk_retrieval_delay'])
+
+          # Other Variables
+          copy_invocation_type = 'RequestResponse'
+
+
+          # Define Copy Job Initiation Delay parameters based on Archive Class #
+          # Define Parameters #
+          standard_restore_copy_job_delay = None
+          bulk_restore_copy_job_delay = None
+
+          if my_archive_storage_class == 'GLACIER':
+              standard_restore_copy_job_delay = my_gfr_standard_retrieval_delay
+              bulk_restore_copy_job_delay = my_gfr_bulk_retrieval_delay
+              logger.info(
+                  f"Delay time set for Glacier are Std: {standard_restore_copy_job_delay} and Bulk: {bulk_restore_copy_job_delay}")
+
+          elif my_archive_storage_class == 'DEEP_ARCHIVE' or 'GLACIER_AND_DEEP_ARCHIVE':
+              standard_restore_copy_job_delay = my_gda_standard_retrieval_delay
+              bulk_restore_copy_job_delay = my_gda_bulk_retrieval_delay
+              logger.info(
+                  f"Delay time set for Deep_Archive are Std: {standard_restore_copy_job_delay} and Bulk: {bulk_restore_copy_job_delay}")
+
+
+          # Function to Invoke Copy Function Worker
+          def invoke_function(function_name, invocation_type, payload):
+              invoke_response = client.invoke(
+                  FunctionName=function_name,
+                  InvocationType=invocation_type,
+                  Payload=payload,
+
+              )
+              response_payload = json.loads(invoke_response['Payload'].read().decode("utf-8"))
+              return response_payload
+
+          # Scan DynamoDB Table
+          def scan_table(column_name, column_value):
+              projection_expression = "copy_manifest_s3bucket, copy_manifest_skey, restore_date_completed, restore_job_tier, " \
+                                      "restore_job_id "
+              ddb_items = []
+              scan_kwargs = {
+                  'FilterExpression': Key(column_name).eq(column_value),
+              }
+              try:
+                  done = False
+                  begin = None
+                  while not done:
+                      if begin:
+                          scan_kwargs['ExclusiveStartKey'] = begin
+                      response = table.scan(**scan_kwargs)
+                      ddb_items.extend(response.get('Items', []))
+                      begin = response.get('LastEvaluatedKey', None)
+                      done = begin is None
+              except ClientError as e:
+                  logger.error(e)
+
+              return ddb_items
+
+          # Update DynamoDB Table Function
+          def ddb_update_item(restorejobid, restorejobstatus, updatedval1, updatedval2):
+              try:
+                  update_response = table.update_item(
+                      Key={
+                          'restore_job_id': restorejobid,
+                          'restore_job_status': restorejobstatus
+                      },
+                      UpdateExpression='SET copy_job_id = :val1, copy_job_status = :val2',
+                      ExpressionAttributeValues={
+                          ':val1': updatedval1,
+                          ':val2': updatedval2
+                      },
+                      ReturnValues="UPDATED_NEW"
+                  )
+                  logger.info(update_response.get('Attributes'))
+              except ClientError as e:
+                  logger.error(e)
+
+
+          def lambda_handler(event, context):
+              my_column_name = 'copy_job_status'
+              my_column_value = 'NotStarted'
+              ddb_scan_result = scan_table(my_column_name, my_column_value)
+              for data in ddb_scan_result:
+                  logger.info(data)
+                  copy_job_manifest_key = data.get('copy_manifest_skey')
+                  copy_job_manifest_bucket = data.get('copy_manifest_s3bucket')
+                  restore_job_completion_date = data.get('restore_date_completed')
+                  restore_job_retrieval_tier = data.get('restore_job_tier')
+                  restore_jobid = data.get('restore_job_id')
+                  restorejobstatus = data.get('restore_job_status')
+                  manifest_flds_num = str(data.get('num_manifest_fields'))
+                  # Add 48 hours to the restore_job_completion, to allow Glacier Restore Completion
+                  conv_to_timestamp = parser.parse(restore_job_completion_date)
+                  if restore_job_retrieval_tier == 'STANDARD':
+                      offset_hours = standard_restore_copy_job_delay
+                  elif restore_job_retrieval_tier == 'BULK':
+                      offset_hours = bulk_restore_copy_job_delay
+                  copy_job_start = conv_to_timestamp + datetime.timedelta(hours=offset_hours)
+                  logger.info(f"Restore Job Completion date is: {restore_job_completion_date}")
+                  logger.info(f"Restore Tier is: {restore_job_retrieval_tier}")
+                  logger.info(f"Scheduled time for Copy Job Start: {copy_job_start}")
+                  logger.info(f"The Restore Job ID is: {restore_jobid}")
+                  my_current_time_now = datetime.datetime.utcnow().replace(tzinfo=tzlocal())
+                  logger.info(f"My current time is: {my_current_time_now}")
+                  # Start Copy Function Invoke
+                  # Generate Payload for Invocation:
+                  my_payload = {"copymanifestbucket": copy_job_manifest_bucket, "copymanifestkey": copy_job_manifest_key,
+                                "restorejobid": restore_jobid, 'nummanifestcols': manifest_flds_num}
+                  my_payload_json = json.dumps(my_payload)
+
+                  if my_current_time_now >= copy_job_start:
+                      logger.info(
+                          f"My current time is: {my_current_time_now} and job planned time is {copy_job_start} so, start the "
+                          f"copy job now!")
+                      # Start Copy Function Invoke
+                      invoke_copy_funct = invoke_function(copy_function_name, copy_invocation_type, my_payload_json)
+                      logger.info(invoke_copy_funct)
+                      invoke_status_code = invoke_copy_funct.get("statusCode")
+                      invoke_copy_job_id = invoke_copy_funct.get("body")
+                      # Change Copy Job Status in DDB to Submitted
+                      updatedval2 = 'Submitted'
+                      if invoke_status_code == 200 and invoke_copy_job_id:
+                          # Update the DDB Table if Job Invocation is Successful
+                          ddb_update_item(restore_jobid, restorejobstatus, invoke_copy_job_id, updatedval2)
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Successful Invocation!')
+              }
+
+
+
+##################################### Code Ends  ######################################################
+
+################################# Custom Resource S3 Notification Configuration ###################
+
+
+
+  CustomBackedLambdaIamRole:
+    Type: 'AWS::IAM::Role'
+    DependsOn:
+      - S3AutoRestoreMigrateS3Bucket
+      - CheckBucketExists
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: GrantFunctioAdditionalPerm
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 's3:GetBucketNotification'
+                  - 's3:PutBucketNotification'
+                  - 's3:PutObject'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}/*
+                Effect: Allow
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+
+  CreateBucketEventNotification:
+    DependsOn:
+      - CheckBucketExists     
+    Type: AWS::Lambda::Function
+    Properties:
+      Architectures:
+        - arm64     
+      Environment:
+        Variables:
+          event_one_id: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - eventoneid
+          event_one_prefix_value: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - eventoneprefixvalue
+          event_one_suffix_value: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - eventonesuffixvalue
+          event_two_id: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - eventtwoid
+          event_two_prefix_value: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - eventtwoprefixvalue
+          event_two_suffix_value: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - eventtwosuffixvalue
+          event_three_id: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - eventthreeid
+          event_three_prefix_value: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - eventthreeprefixvalue
+          event_three_suffix_value: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - eventthreesuffixvalue
+          event_four_id: !FindInMap [ ManifestBucketinfo, s3events, eventfourid ]
+          event_four_prefix_value: !Sub ${AWS::AccountId}/
+          event_four_suffix_value: !FindInMap [ ManifestBucketinfo, s3events, eventfoursuffixvalue ]
+          bucket_path_a: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - bucketpatha
+          bucket_path_b: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - bucketpathb
+          bucket_path_c: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - bucketpathc
+          bucket_path_d: !FindInMap
+              - ManifestBucketinfo
+              - s3events
+              - bucketpathd
+      Description: Custom Lambda Resource to Create S3 Event Notification and Prefix
+      Runtime: python3.9
+      Role: !GetAtt
+        - CustomBackedLambdaIamRole
+        - Arn
+      Handler: index.lambda_handler
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import cfnresponse
+          import logging
+          import random
+          import boto3
+          import os
+          import uuid
+          import jmespath
+          from botocore.exceptions import ClientError as ServicesClientError
+
+          # Set up logging
+          logger = logging.getLogger(__name__)
+          logger.setLevel('INFO')
+
+          # Enable Verbose logging for Troubleshooting
+          # boto3.set_stream_logger("")
+
+          # Set Region #
+          my_region = str(os.environ['AWS_REGION'])
+
+          ### Initiate Variables ######
+          # Start Global Variables
+          my_event_one_id = str(os.environ['event_one_id'])
+          my_event_one_prefix_value = str(os.environ['event_one_prefix_value'])
+          my_event_one_suffix_value = str(os.environ['event_one_suffix_value'])
+
+          my_event_two_id = str(os.environ['event_two_id'])
+          my_event_two_prefix_value = str(os.environ['event_two_prefix_value'])
+          my_event_two_suffix_value = str(os.environ['event_two_suffix_value'])
+
+          my_event_three_id = str(os.environ['event_three_id'])
+          my_event_three_prefix_value = str(os.environ['event_three_prefix_value'])
+          my_event_three_suffix_value = str(os.environ['event_three_suffix_value'])
+
+          my_event_four_id = str(os.environ['event_four_id'])
+          my_event_four_prefix_value = str(os.environ['event_four_prefix_value'])
+          my_event_four_suffix_value = str(os.environ['event_four_suffix_value'])
+
+
+          struct_value_1 = str(os.environ['bucket_path_a'])
+          struct_value_2 = str(os.environ['bucket_path_b'])
+          struct_value_3 = str(os.environ['bucket_path_c'])
+          struct_value_4 = str(os.environ['bucket_path_d'])
+
+
+          bucket_structure = [
+              struct_value_1,
+              struct_value_2,
+              struct_value_3,
+              struct_value_4,
+
+          ]
+
+          # Initiate Amazon S3 Bucket Resource
+          s3 = boto3.resource('s3', region_name=my_region)
+
+          def put_s3_object(my_bucket, my_key):
+              try:
+                bucket = s3.Bucket(my_bucket)
+                my_object = bucket.Object(my_key)
+                put_obj_response = my_object.put()
+              except ServicesClientError as e:
+                logger.error(e)
+                raise
+
+
+          def bucket_put_event_notification(s3Bucket, my_event_one_fn_arn, my_event_two_fn_arn, my_event_three_fn_arn, my_event_four_fn_arn):
+            # Initiate Bucket Notification ##
+            bucket_notification = s3.BucketNotification(s3Bucket)
+            try:
+                put_notification_response = bucket_notification.put(
+                    NotificationConfiguration={
+                        'LambdaFunctionConfigurations': [
+                            {
+                                'Id': my_event_one_id,
+                                'LambdaFunctionArn': my_event_one_fn_arn,
+                                'Events': [
+                                    's3:ObjectCreated:*',
+                                ],
+                                'Filter': {
+                                    'Key': {
+                                        'FilterRules': [
+                                            {
+                                                'Name': 'prefix',
+                                                'Value': my_event_one_prefix_value
+                                            },
+                                            {
+                                                'Name': 'suffix',
+                                                'Value': my_event_one_suffix_value
+                                            }
+                                        ]
+                                    }
+                                }
+                            },
+                            {
+                                'Id': my_event_two_id,
+                                'LambdaFunctionArn': my_event_two_fn_arn,
+                                'Events': [
+                                    's3:ObjectCreated:*',
+                                ],
+                                'Filter': {
+                                    'Key': {
+                                        'FilterRules': [
+                                            {
+                                                'Name': 'prefix',
+                                                'Value': my_event_two_prefix_value
+                                            },
+                                            {
+                                                'Name': 'suffix',
+                                                'Value': my_event_two_suffix_value
+                                            }
+                                        ]
+                                    }
+                                }
+                            },
+                            {
+                                'Id': my_event_three_id,
+                                'LambdaFunctionArn': my_event_three_fn_arn,
+                                'Events': [
+                                    's3:ObjectCreated:*',
+                                ],
+                                'Filter': {
+                                    'Key': {
+                                        'FilterRules': [
+                                            {
+                                                'Name': 'prefix',
+                                                'Value': my_event_three_prefix_value
+                                            },
+                                            {
+                                                'Name': 'suffix',
+                                                'Value': my_event_three_suffix_value
+                                            }
+                                        ]
+                                    }
+                                }
+                            },
+                            {
+                                'Id': my_event_four_id,
+                                'LambdaFunctionArn': my_event_four_fn_arn,
+                                'Events': [
+                                    's3:ObjectCreated:*',
+                                ],
+                                'Filter': {
+                                    'Key': {
+                                        'FilterRules': [
+                                            {
+                                                'Name': 'prefix',
+                                                'Value': my_event_four_prefix_value
+                                            },
+                                            {
+                                                'Name': 'suffix',
+                                                'Value': my_event_four_suffix_value
+                                            }
+                                        ]
+                                    }
+                                }
+                            },
+                        ],
+                    },
+                    SkipDestinationValidation=True
+                )
+            except ServicesClientError as e:
+                logger.error(e)
+                raise
+
+
+          def remove_bucket_notification(s3Bucket):
+            # Initiate Bucket Notification ##
+            bucket_notification = s3.BucketNotification(s3Bucket)
+            try:
+                remove_notification_response = bucket_notification.put(
+                    NotificationConfiguration={}
+                )
+            except ServicesClientError as e:
+                logger.error(e)
+                raise
+
+
+
+          def lambda_handler(event, context):
+            # Define Environmental Variables
+
+            my_bucket = event.get("ResourceProperties").get("my_solution_bucket")
+            my_event_one_fn_arn_value = event.get("ResourceProperties").get("bucket_event_destination_lambda")
+            my_event_two_fn_arn_value = event.get("ResourceProperties").get("bucket_event_destination_lambda_1")
+            my_event_three_fn_arn_value = event.get("ResourceProperties").get("bucket_event_destination_lambda")
+            my_event_four_fn_arn_value = event.get("ResourceProperties").get("bucket_event_destination_lambda_state_function")
+
+            if event.get('RequestType') == 'Create':
+              logger.info(event)
+              try:
+                logger.info("Creating Prefixes for Bucket Structure...")
+                create_object = [put_s3_object(my_bucket, r) for r in bucket_structure]
+                logger.info("Initiating Bucket Notification Configuration Setting...")
+                bucket_put_event_notification(my_bucket, my_event_one_fn_arn_value, my_event_two_fn_arn_value, my_event_three_fn_arn_value, my_event_four_fn_arn_value)
+                responseData = {}
+                responseData['message'] = "Successful"
+                logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+              except Exception as e:
+                logger.error(e)
+                responseData = {}
+                responseData['message'] = str(e)
+                failure_reason = str(e) 
+                logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                cfnresponse.send(event, context, cfnresponse.FAILED, responseData, reason=failure_reason)                
+
+            elif event.get('RequestType') == 'Delete':
+              logger.info(event)
+              try:
+                logger.info(f"Initiating Bucket Notification Configuration Removal")
+                remove_bucket_notification(my_bucket)
+                responseData = {}
+                responseData['message'] = "Completed"
+                logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+              except Exception as e:
+                logger.error(e)
+                responseData = {}
+                responseData['message'] = str(e)
+                failure_reason = str(e) 
+                logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                cfnresponse.send(event, context, cfnresponse.FAILED, responseData, reason=failure_reason)                   
+
+            elif event.get('RequestType') == 'Update':
+              logger.info(event)
+              try:
+                logger.info("Initiating Bucket Notification Configuration Update")
+                bucket_put_event_notification(my_bucket, my_event_one_fn_arn_value, my_event_two_fn_arn_value, my_event_three_fn_arn_value, my_event_four_fn_arn_value)
+                responseData = {}
+                responseData['message'] = "Successful"
+                logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+              except Exception as e:
+                logger.error(e)
+                responseData = {}
+                responseData['message'] = str(e)
+                failure_reason = str(e) 
+                logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                cfnresponse.send(event, context, cfnresponse.FAILED, responseData, reason=failure_reason)                   
+            else:
+              logging.error(f"Unsupported Operation {event.get('RequestType')}, please retry")
+
+
+################################### Code Ends #####################################################
+
+
+
+########################## S3 BatchOps Invoke Lambda for Copying ####################################
+
+  S3BatchCopyLambdaFunctionIamRole:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: S3BatchCopyLambdaFunctionIamRolePolicy0
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 's3:GetObject'
+                  - 's3:GetObjectAcl'
+                  - 's3:GetObjectTagging'
+                  - 's3:GetObjectVersion'
+                  - 's3:GetObjectVersionAcl'
+                  - 's3:GetObjectVersionTagging'
+                  - 's3:ListBucket*'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${ArchiveBucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${ArchiveBucket}/*
+                Effect: Allow
+              - Action:
+                  - 's3:PutObject'
+                  - 's3:PutObjectAcl'
+                  - 's3:PutObjectTagging'
+                  - 's3:PutObjectLegalHold'
+                  - 's3:PutObjectRetention'
+                  - 's3:GetBucketObjectLockConfiguration'
+                  - 's3:ListBucket*'
+                  - 's3:GetBucketLocation'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${DestinationBucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${DestinationBucket}/*
+                Effect: Allow
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+
+
+  S3BatchCopyLambdafunction:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64     
+      ReservedConcurrentExecutions: 
+        !If [NoFunctionConcurrency, !Ref AWS::NoValue, !Ref CopyFunctionReservedConcurrency ]    
+      Environment:
+        Variables:
+          destination_bucket: !Ref DestinationBucket
+          destination_bucket_prefix: !Ref BucketForCopyDestinationPrefix
+          max_attempts: !Ref SDKMaxErrorRetries
+          max_concurrency: !Ref TransferMaximumConcurrency
+          max_pool_connections: !Ref SDKMaxPoolConnections
+          multipart_chunksize: !Ref MultipartChunkSize
+          copy_metadata: !Ref CopyMetadata
+          copy_tagging: !Ref CopyTagging
+          copy_storage_class: !Ref StorageClass
+      Runtime: python3.8
+      Timeout: 900
+      Description: An S3 Batch Solution for Copying above 5GB S3 Object Size.
+      MemorySize: 600
+      Handler: index.lambda_handler
+      Role: !GetAtt
+        - S3BatchCopyLambdaFunctionIamRole
+        - Arn
+      Code:
+        ZipFile: |
+            import boto3
+            import os
+            from urllib import parse
+            from botocore.client import Config
+            from botocore.exceptions import ClientError as S3ClientError
+            from boto3.s3.transfer import TransferConfig
+            import logging
+            import datetime
+
+            # Define Environmental Variables
+            target_bucket = str(os.environ['destination_bucket'])
+            my_max_pool_connections = int(os.environ['max_pool_connections'])
+            my_max_concurrency = int(os.environ['max_concurrency'])
+            my_multipart_chunksize = int(os.environ['multipart_chunksize'])
+            my_max_attempts = int(os.environ['max_attempts'])
+            metadata_copy = str(os.environ['copy_metadata'])
+            tagging_copy = str(os.environ['copy_tagging'])
+            obj_copy_storage_class = str(os.environ['copy_storage_class'])
+            new_prefix = str(os.environ['destination_bucket_prefix'])
+            # my_source_storage_class = str(os.environ['source_storage_class'])
+            my_source_storage_class = ['GLACIER', 'DEEP_ARCHIVE']
+
+
+            # # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+
+            # Enable Verbose logging for Troubleshooting
+            # boto3.set_stream_logger("")
+
+            # Set and Declare Configuration Parameters
+            transfer_config = TransferConfig(max_concurrency=my_max_concurrency, multipart_chunksize=my_multipart_chunksize)
+            config = Config(max_pool_connections=my_max_pool_connections, retries = {'max_attempts': my_max_attempts})
+
+            # Set and Declare Copy Arguments
+            myargs = {'ACL': 'bucket-owner-full-control', 'StorageClass': obj_copy_storage_class}
+
+            # Instantiate S3Client
+            s3Client = boto3.client('s3', config=config)
+
+            def lambda_handler(event, context):
+              # Parse job parameters from Amazon S3 batch operations
+              jobId = event['job']['id']
+              invocationId = event['invocationId']
+              invocationSchemaVersion = event['invocationSchemaVersion']
+
+              # Prepare results
+              results = []
+
+              # Parse Amazon S3 Key, Key Version, and Bucket ARN
+              taskId = event['tasks'][0]['taskId']
+              # use unquote_plus to handle various characters in S3 Key name
+              s3Key = parse.unquote_plus(event['tasks'][0]['s3Key'], encoding='utf-8')
+              s3VersionId = event['tasks'][0]['s3VersionId']
+              s3BucketArn = event['tasks'][0]['s3BucketArn']
+              s3Bucket = s3BucketArn.split(':')[-1]
+
+              try:
+                # Prepare result code and string
+                resultCode = None
+                resultString = None
+                # Remove line feed or carriage return for compatibility with S3 Batch Result Message
+                # Will use str.translate to strip '\n' and '\r'. Convert both char to ascii using ord()
+                # where '\t' = 9, '\n' = 10 and '\r' = 13
+                mycompat = {9: None, 10: None, 13: None}
+                # Construct Copy Object
+                copy_source = {'Bucket': s3Bucket, 'Key': s3Key}
+                # If source key has VersionID, then construct request with VersionID
+                if s3VersionId is not None:
+                  copy_source['VersionId'] = s3VersionId
+                  # Construct/Retrieve get source key metadata
+                  if metadata_copy == 'Enable':
+                    get_metadata = s3Client.head_object(Bucket=s3Bucket, Key=s3Key, VersionId=s3VersionId)
+                  # Construct/Retrieve get source key tagging
+                  if tagging_copy == 'Enable':
+                    get_obj_tag = s3Client.get_object_tagging(Bucket=s3Bucket, Key=s3Key, VersionId=s3VersionId)
+                else:
+                  # Construct/Retrieve get source key metadata
+                  if metadata_copy == 'Enable':
+                    get_metadata = s3Client.head_object(Bucket=s3Bucket, Key=s3Key)
+                  # Construct/Retrieve get source key tagging
+                  if tagging_copy == 'Enable':
+                    get_obj_tag = s3Client.get_object_tagging(Bucket=s3Bucket, Key=s3Key)
+
+                # Construct New Path
+                # Construct New Key
+                if new_prefix and len(new_prefix) > 0:
+                  newKey = "{0}/{1}".format(new_prefix, s3Key)
+                else:
+                  newKey = s3Key
+
+                newBucket = target_bucket
+
+                # Toggle Metadata or Tagging Copy Based on Enviromental Variables
+                # Construct Request Parameters with metadata and tagging from sourceKey
+                # Create variables to append as metadata and tagging to destination object
+                if metadata_copy == 'Enable':
+                  logger.info("Object Metadata Copy Enabled from Source to Destination")
+                  cache_control = get_metadata.get('CacheControl')
+                  content_disposition = get_metadata.get('ContentDisposition')
+                  content_encoding = get_metadata.get('ContentEncoding')
+                  content_language = get_metadata.get('ContentLanguage')
+                  metadata = get_metadata.get('Metadata')
+                  website_redirect_location = get_metadata.get('WebsiteRedirectLocation')
+                  expires = get_metadata.get('Expires')
+                  # Construct Request With Required and Available Arguments
+                  if cache_control:
+                    myargs['CacheControl'] = cache_control
+                  if content_disposition:
+                    myargs['ContentDisposition'] = content_disposition
+                  if content_encoding:
+                    myargs['ContentEncoding'] = content_encoding
+                  if content_language:
+                    myargs['ContentLanguage'] = content_language
+                  if metadata:
+                    myargs['Metadata'] = metadata
+                  if website_redirect_location:
+                    myargs['WebsiteRedirectLocation'] = website_redirect_location
+                  if expires:
+                    myargs['Expires'] = expires
+                else:
+                  logger.info("Object Metadata Copy Disabled")
+
+                if tagging_copy == 'Enable':
+                  logger.info("Object Tagging Copy Enabled from Source to Destination")
+                  existing_tag_set = (get_obj_tag.get('TagSet'))
+                  # Convert the Output from get object tagging to be compatible with transfer s3.copy()
+                  tagging_to_s3 = "&".join([f"{parse.quote_plus(d['Key'])}={parse.quote_plus(d['Value'])}" for d in existing_tag_set])
+                  # Construct Request With Required and Available Arguments
+                  if existing_tag_set:
+                    myargs['Tagging'] = tagging_to_s3
+                else:
+                  logger.info("Object Tagging Copy Disabled")
+
+                # Include Copy Source Storage Class Condition:
+                response = {}
+                head_object_storage_class = get_metadata.get('StorageClass')
+                logger.info(f"Storage class of source key is {head_object_storage_class}!")
+                # my_source_storage_class
+                if head_object_storage_class in my_source_storage_class:
+                  # Initiate the Actual Copy Operation and include transfer config option
+                  logger.info(f"starting copy of object {s3Key} with versionID {s3VersionId} between SOURCEBUCKET: {s3Bucket} and DESTINATIONBUCKET: {newBucket}")
+                  response = s3Client.copy(copy_source, newBucket, newKey, Config=transfer_config, ExtraArgs=myargs)
+                  # Confirm copy was successful
+                  logger.info("Successfully completed the copy process!")
+
+                  # Mark as succeeded
+                  resultCode = 'Succeeded'
+                  resultString = str("Successfully completed the copy process!")
+
+                else:
+                  logger.info(f"Skipping Copy, object {s3Key} with versionID {s3VersionId} in storage-class {head_object_storage_class} is not in specified storage class {my_source_storage_class}!")
+                  # Mark as succeeded
+                  resultCode = 'PermanentFailure'
+                  resultString = str("Skipping copy, object storage class does not match the specified copy source storage class")
+
+              except S3ClientError as e:
+                # log errors, some errors does not have a response, so handle them
+                logger.error(f"Unable to complete requested operation, see Clienterror details below:")
+                try:
+                  logger.error(e.response)
+                  errorCode = e.response.get('Error', {}).get('Code')
+                  errorMessage = e.response.get('Error', {}).get('Message')
+                  errorS3RequestID = e.response.get('ResponseMetadata', {}).get('RequestId')
+                  errorS3ExtendedRequestID = e.response.get('ResponseMetadata', {}).get('HostId')
+
+                  resultCode = 'PermanentFailure'
+                  resultString = '{}: {}: {}: {}'.format(errorCode, errorMessage, errorS3RequestID, errorS3ExtendedRequestID)
+                  logger.error(resultString)
+
+                except AttributeError:
+                  logger.error(e)
+                  resultCode = 'PermanentFailure'
+                  # Remove line feed or carriage return for compatibility with S3 Batch Result Message
+                  resultString = '{}'.format(str(e).translate(mycompat))
+              except Exception as e:
+                # log errors, some errors does not have a response, so handle them
+                logger.error(f"Unable to complete requested operation, see Additional Client/Service error details below:")
+                try:
+                  logger.error(e.response)
+                  errorCode = e.response.get('Error', {}).get('Code')
+                  errorMessage = e.response.get('Error', {}).get('Message')
+                  errorS3RequestID = e.response.get('ResponseMetadata', {}).get('RequestId')
+                  errorS3ExtendedRequestID = e.response.get('ResponseMetadata', {}).get('HostId')
+                  resultString = '{}: {}: {}: {}'.format(errorCode, errorMessage, errorS3RequestID, errorS3ExtendedRequestID)
+                except AttributeError:
+                  logger.error(e)
+                  resultString = 'Exception: {}'.format(str(e).translate(mycompat))
+                resultCode = 'PermanentFailure'
+
+              finally:
+                results.append({
+                'taskId': taskId,
+                'resultCode': resultCode,
+                'resultString': resultString
+                })
+
+              return {
+              'invocationSchemaVersion': invocationSchemaVersion,
+              'treatMissingKeysAs': 'PermanentFailure',
+              'invocationId': invocationId,
+              'results': results
+              }
+
+############################ End Code ########################################
+
+
+
+
+
+
+######################################## Add Athena , GlueDB and GlueTables ##########################
+
+  S3AutoRestoreMigrateAthenaWorkGroup:
+    Type: AWS::Athena::WorkGroup
+    DependsOn:
+      - S3AutoRestoreMigrateS3Bucket
+      - CheckBucketExists 
+    Properties:
+      Name: !Sub 'querywrkgr-${StackNametoLower.change_to_lower}'
+      Description: S3 Auto Restore and Migrate Athena WorkGroup
+      State: ENABLED
+      WorkGroupConfiguration:
+        EnforceWorkGroupConfiguration: false
+        ResultConfiguration:
+          OutputLocation: !Sub 's3://${S3AutoRestoreMigrateS3Bucket}/athena-query-results/'
+
+
+  S3AutoRestoreMigrateGlueDatabase:
+    DependsOn:
+      - CheckBucketExists     
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Description: S3 AutoRestoreMigrate DB
+        Name: !Sub 'gluedb-${StackNametoLower.change_to_lower}'
+        LocationUri: !Sub 's3://${S3AutoRestoreMigrateS3Bucket}'
+
+
+  S3AutoRestoreMigrateGlueTable:
+    DependsOn:
+      - CheckBucketExists     
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref S3AutoRestoreMigrateGlueDatabase
+      TableInput:
+        Name: !Sub 'gluetable-${StackNametoLower.change_to_lower}'
+        Owner: owner
+        Retention: 0
+        Parameters:
+          projection.enabled : true
+          projection.dt.type : 'date'
+          projection.dt.format : 'yyyy-MM-dd-HH-mm'
+          projection.dt.range : '2022-01-01-00-00,NOW'
+          projection.dt.interval : '1'
+          projection.dt.interval.unit : 'HOURS'
+        StorageDescriptor:
+          Columns:
+            - Name: bucket
+              Type: string
+            - Name: key
+              Type: string
+            - Name: version_id
+              Type: string
+            - Name: is_latest
+              Type: boolean
+            - Name: is_delete_marker
+              Type: boolean
+            - Name: size
+              Type: bigint
+            - Name: last_modified_date
+              Type: timestamp
+            - Name: e_tag
+              Type: string
+            - Name: storage_class
+              Type: string
+            - Name: is_multipart_uploaded
+              Type: boolean
+            - Name: replication_status
+              Type: string
+            - Name: encryption_status
+              Type: string
+            - Name: object_lock_retain_until_date
+              Type: timestamp
+            - Name: object_lock_mode
+              Type: string
+            - Name: object_lock_legal_hold_status
+              Type: string
+            - Name: intelligent_tiering_access_tier
+              Type: string
+          InputFormat: org.apache.hadoop.hive.ql.io.SymlinkTextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.IgnoreKeyTextOutputFormat
+          Compressed: false
+          NumberOfBuckets: -1
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+            Parameters:
+              serialization.format: '1'
+          BucketColumns: []
+          SortColumns: []
+          StoredAsSubDirectories: false
+          Location: !Sub 's3://${S3AutoRestoreMigrateS3Bucket}/${AWS::AccountId}/${ArchiveBucket}/autorestorearchive-${StackNametoLower.change_to_lower}/hive/'
+        PartitionKeys:
+          - Name: dt
+            Type: string
+        TableType: EXTERNAL_TABLE
+
+
+
+########################################### Enable S3 Inventory on Archive Bucket ###################################################################
+
+  S3AutoRestoreMigrateS3InventoryLambdaIAMRole:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutInventoryConfiguration'
+                  - 's3:GetInventoryConfiguration'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${ArchiveBucket}'
+
+
+
+  S3AutoRestoreMigrateCustomResourceLambdaFunction:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Runtime: python3.9
+      Timeout: 90
+      Environment:
+        Variables:
+          inv_report_schedule: !FindInMap [ Parameters, Values, inventorysch ]
+          account_id: !Ref AWS::AccountId
+          inv_config_id: !Sub 'autorestorearchive-${StackNametoLower.change_to_lower}'
+      Handler: index.lambda_handler
+      Role: !GetAtt S3AutoRestoreMigrateS3InventoryLambdaIAMRole.Arn
+      Code:
+        ZipFile: |
+            import json
+            import boto3
+            import os
+            import cfnresponse
+            import logging
+            from botocore.exceptions import ClientError
+
+            # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+
+            # Define Region
+            my_region = str(os.environ['AWS_REGION'])
+
+            # Create Service Client
+            s3 = boto3.resource('s3', region_name=my_region)
+            s3client = boto3.client('s3', region_name=my_region)
+
+            ### Define Environmental Variables ###
+            my_inv_schedule = str(os.environ['inv_report_schedule'])
+            accountId = str(os.environ['account_id'])
+            my_config_id = str(os.environ['inv_config_id'])
+
+            # Define other parameters
+            my_incl_versions = 'All'
+
+            def config_s3_inventory(src_bucket, config_id, dst_bucket,
+                                    inv_format, src_prefix, dst_prefix, inv_status, inv_schedule, incl_versions):
+
+                ## Generate default kwargs ##
+                my_request_kwargs = {
+                    'Bucket': src_bucket,
+                    'Id': config_id,
+                    'InventoryConfiguration': {
+                        'Destination': {
+                            'S3BucketDestination': {
+                                # 'AccountId': account_id,
+                                'Bucket': f'arn:aws:s3:::{dst_bucket}',
+                                'Format': inv_format,
+                                'Prefix': dst_prefix,
+                                'Encryption': {
+                                    'SSES3': {}
+                                }
+                            }
+                        },
+                        'IsEnabled': inv_status,
+                        'Filter': {
+                            'Prefix': src_prefix
+                        },
+                        'Id': config_id,
+                        'IncludedObjectVersions': incl_versions,
+                        'OptionalFields': [
+                            'Size',
+                            'LastModifiedDate',
+                            'StorageClass',
+                            'ETag',
+                            'IsMultipartUploaded',
+                            'ReplicationStatus',
+                            'EncryptionStatus',
+                            'ObjectLockRetainUntilDate',
+                            'ObjectLockMode',
+                            'ObjectLockLegalHoldStatus',
+                            'IntelligentTieringAccessTier',
+                        ],
+                        'Schedule': {
+                            'Frequency': inv_schedule
+                        }
+                    }
+                }
+
+                ## Remove Prefix Parameter if No Value is Specified, All Bucket ##
+
+                logger.info(src_prefix)
+                if src_prefix == '' or src_prefix is None:
+                    logger.info(f'removing filter parameter')
+                    my_request_kwargs['InventoryConfiguration'].pop('Filter')
+                    logger.info(f"Modify kwargs no prefix specified: {my_request_kwargs}")
+
+                # Initiating Actual PutBucket Inventory API Call ##
+                try:
+                    logger.info(f'Applying inventory configuration to S3 bucket {src_bucket}')
+                    s3client.put_bucket_inventory_configuration(**my_request_kwargs)
+                except Exception as e:
+                    logger.error(f'An error occurred processing, error details are: {e}')
+                    raise
+
+
+            def lambda_handler(event, context):
+                my_inv_format = 'Parquet'
+                my_dest_prefix = accountId
+                my_inv_status = True
+                logger.info("Received event: " + json.dumps(event, indent=2))
+                responseData={}
+                try:
+                    if event['RequestType'] == 'Delete':
+                        logger.info(f"Request Type is {event['RequestType']}")
+                        logger.info("No Action Required, Inventory deletion is handled by Workflow!")
+                        logger.info("Sending response to custom resource after Delete")
+                        responseData['message'] = "Successful"
+                        logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                        cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)                        
+                    elif event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                        logger.info(f"Request Type is {event['RequestType']}")
+                        my_src_bucket = event['ResourceProperties']['MyBucketwithArchives']
+                        my_src_prefix = event['ResourceProperties']['ArchiveBucketPrefix']
+                        my_dst_bucket = event['ResourceProperties']['MyS3InventoryDestinationBucket']
+                        config_s3_inventory(my_src_bucket, my_config_id, my_dst_bucket,
+                                                my_inv_format, my_src_prefix, my_dest_prefix, my_inv_status, my_inv_schedule, my_incl_versions)
+                        logger.info("Sending Successful response to custom resource")
+                        responseData['message'] = "Successful"
+                        logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                        cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)                        
+                except Exception as e:
+                        responseData['message'] = str(e)
+                        failure_reason = str(e) 
+                        logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                        cfnresponse.send(event, context, cfnresponse.FAILED, responseData, reason=failure_reason)                                          
+
+
+#################################### Code Ends ########################################################
+
+  RemoveS3InventoryLambdaIAMRole:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutInventoryConfiguration'
+                  - 's3:GetInventoryConfiguration'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${ArchiveBucket}'
+
+
+
+  RemoveS3InventoryCustomResourceLambdaFunction:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Environment:
+        Variables:
+          inv_config_id: !Sub 'autorestorearchive-${StackNametoLower.change_to_lower}'        
+      Runtime: python3.9
+      Timeout: 90
+      Handler: index.lambda_handler
+      Role: !GetAtt RemoveS3InventoryLambdaIAMRole.Arn
+      Code:
+        ZipFile: |
+            import json
+            import boto3
+            import os
+            import cfnresponse
+            import logging
+            from botocore.exceptions import ClientError
+
+            # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+
+            SUCCESS = "SUCCESS"
+            FAILED = "FAILED"
+
+            ### Define Environmental Variables ###
+            # Define Region
+            my_region = str(os.environ['AWS_REGION'])
+            my_config_id = str(os.environ['inv_config_id'])
+
+            # Create Service Client
+            s3 = boto3.resource('s3', region_name=my_region)
+            s3client = boto3.client('s3', region_name=my_region)
+
+            
+            # Remove S3 Inventory Configuration #
+            def del_inventory_configuration(src_bucket, config_id):
+                try:
+                    logger.info(f"Starting the process to remove the S3 Inventory configuration {config_id}")
+                    response = s3client.delete_bucket_inventory_configuration(
+                        Bucket=src_bucket,
+                        Id=config_id,
+                    )
+                except Exception as e:
+                    logger.error(e)
+                else:
+                    logger.info(f"Successfully deleted the S3 Inventory configuration {config_id}")
+
+            def lambda_handler(event, context):
+                my_src_bucket = event['ResourceProperties']['MyBucketwithArchives']
+                logger.info("Received event: " + json.dumps(event, indent=2))
+                responseData={}
+                try:
+                    if event['RequestType'] == 'Delete':
+                        logger.info(f"Request Type is {event['RequestType']}")
+                        logger.info("Inventory configuration deletion is being initiated....!")
+                        del_inventory_configuration(my_src_bucket, my_config_id)
+                        logger.info("Sending response to custom resource after Delete")
+                        responseData['message'] = "Successful"
+                        logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                        cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)                        
+                    elif event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                        logger.info(f"Request Type is {event['RequestType']}")
+                        logger.info("No Action Required, Inventory PutConfiguration is handled by Another Function!")
+                        logger.info("Sending Successful response to custom resource")
+                        responseData['message'] = "Successful"
+                        logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")
+                        cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+                except Exception as e:
+                    logger.error(f'Deployment failed, see error details: {e}')
+                    responseStatus = 'FAILED'
+                    responseData = {'Failure': 'Deployment Failed!'}
+                    failure_reason = str(e) 
+                    cfnresponse.send(event, context, responseStatus, responseData, reason=failure_reason)              
+
+#################################### Code Ends ########################################################
+
+
+##############################  Start State Machine ################################################
+
+  S3AutoRestoreMigrateStateMachine1Role:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: states.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: '/'
+      Policies:
+        - PolicyName: LambdaInvokeScopedAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource:
+                  - !GetAtt [S3AutoRestoreMigrateChecknumrowsFunction, Arn]
+                  - !GetAtt [S3AutoRestoreMigrateGetqueryresultsFunction, Arn]
+                  - !GetAtt [S3AutoRestoreMigrateAthenaSplitFunction, Arn]
+                  - !GetAtt [InitiateFlowFunction, Arn]
+                  - !GetAtt [ListPrefixFunction, Arn]
+                  - !GetAtt [InvokeRestoreFunction, Arn]
+                  - !GetAtt [PostWorkflowTasksFunction, Arn]        
+        - PolicyName: StepFunctionsStartExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'states:StartExecution'
+                Resource: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:s3restore-${StackNametoLower.change_to_lower}'
+              - Effect: Allow
+                Action:
+                  - 'states:DescribeExecution'
+                  - 'states:StopExecution'
+                Resource: 
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:s3restore-${StackNametoLower.change_to_lower}'
+                  - !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:s3restore-${StackNametoLower.change_to_lower}/*'
+
+
+
+
+  S3AutoRestoreMigrateStateMachine1:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::StepFunctions::StateMachine'
+    Properties:
+      StateMachineName: !Sub 's3restore-${StackNametoLower.change_to_lower}'
+      DefinitionString: !Sub
+        - |-
+          {
+            "Comment": "CSV Manifest Breaker Standalone",
+            "StartAt": "Checknumrows",
+            "States": {
+              "Checknumrows": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "Payload.$": "$",
+                  "FunctionName": "${checknumrows}"
+                },
+                "Retry": [
+                  {
+                    "ErrorEquals": [
+                      "Lambda.ServiceException",
+                      "Lambda.AWSLambdaException",
+                      "Lambda.SdkClientException",
+                      "Lambda.TooManyRequestsException",
+                      "States.TaskFailed"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                  }
+                ],
+                "Next": "Wait for Query Process",
+                "ResultPath": "$.download_result"
+              },
+              "Wait for Query Process": {
+                "Type": "Wait",
+                "Seconds": 180,
+                "Next": "Getqueryresults"
+              },
+              "Getqueryresults": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "Payload.$": "$",
+                  "FunctionName": "${getqueryresults}"
+                },
+                "Retry": [
+                  {
+                    "ErrorEquals": [
+                      "Lambda.ServiceException",
+                      "Lambda.AWSLambdaException",
+                      "Lambda.SdkClientException",
+                      "Lambda.TooManyRequestsException",
+                      "States.TaskFailed"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                  }
+                ],
+                "Next": "Choice",
+                "ResultPath": "$.download_result",
+                "InputPath": "$.download_result.Payload"
+              },
+              "Choice": {
+                "Type": "Choice",
+                "Choices": [
+                  {
+                    "Variable": "$.download_result.Payload.csv_chunking_complete",
+                    "BooleanEquals": true,
+                    "Next": "InitiateFlow"
+                  },
+                  {
+                    "Variable": "$.download_result.Payload.my_csv_num_rows",
+                    "NumericLessThan": 1,
+                    "Next": "Success"
+                  }
+                ],
+                "Default": "AthenaSplit"
+              },
+              "InitiateFlow": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "Payload.$": "$",
+                  "FunctionName": "${initiateflow}"
+                },
+                "Retry": [
+                  {
+                    "ErrorEquals": [
+                      "Lambda.ServiceException",
+                      "Lambda.AWSLambdaException",
+                      "Lambda.SdkClientException",
+                      "Lambda.TooManyRequestsException",
+                      "States.TaskFailed"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                  }
+                ],
+                "Next": "ListPrefix",
+                "InputPath": "$.download_result.Payload",
+                "ResultSelector": {
+                  "bucketname.$": "$.Payload.s3Bucket",
+                  "prefix.$": "$.Payload.prefix",
+                  "jobgroupid.$": "$.Payload.jobgroupid",
+                  "my_csv_num_rows.$": "$.Payload.my_csv_num_rows"
+                }
+              },
+              "ListPrefix": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "Payload.$": "$",
+                  "FunctionName": "${listprefix}"
+                },
+                "Retry": [
+                  {
+                    "ErrorEquals": [
+                      "Lambda.ServiceException",
+                      "Lambda.AWSLambdaException",
+                      "Lambda.SdkClientException",
+                      "Lambda.TooManyRequestsException",
+                      "States.TaskFailed"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                  }
+                ],
+                "Next": "CheckProcessedItems",
+                "ResultPath": "$.data"
+              },
+              "CheckProcessedItems": {
+                "Type": "Choice",
+                "Choices": [
+                  {
+                    "Variable": "$.data.Payload.item_count",
+                    "NumericEqualsPath": "$.data.Payload.num_count",
+                    "Next": "PostWorkflowTasks"
+                  },
+                  {
+                    "Variable": "$.data.Payload.item_count",
+                    "NumericLessThan": 1,
+                    "Next": "Success"
+                  }
+                ],
+                "Default": "InvokeRestore"
+              },
+              "PostWorkflowTasks": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "Payload.$": "$",
+                  "FunctionName": "${postworkflowtasks}"
+                },
+                "Retry": [
+                  {
+                    "ErrorEquals": [
+                      "Lambda.ServiceException",
+                      "Lambda.AWSLambdaException",
+                      "Lambda.SdkClientException",
+                      "Lambda.TooManyRequestsException",
+                      "States.TaskFailed"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                  }
+                ],
+                "Next": "Success"
+              },
+              "InvokeRestore": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "Payload.$": "$",
+                  "FunctionName": "${invokerestore}"
+                },
+                "Retry": [
+                  {
+                    "ErrorEquals": [
+                      "Lambda.ServiceException",
+                      "Lambda.AWSLambdaException",
+                      "Lambda.SdkClientException",
+                      "Lambda.TooManyRequestsException",
+                      "States.TaskFailed"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                  }
+                ],
+                "Next": "DelayForNextRestore",
+                "InputPath": "$.data.Payload",
+                "ResultPath": "$.data"
+              },
+              "DelayForNextRestore": {
+                "Type": "Wait",
+                "Seconds": 21600,
+                "Next": "CheckProcessedItems"
+              },
+              "Success": {
+                "Type": "Succeed"
+              },
+              "AthenaSplit": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "Payload.$": "$",
+                  "FunctionName": "${athenasplit}"
+                },
+                "Retry": [
+                  {
+                    "ErrorEquals": [
+                      "Lambda.ServiceException",
+                      "Lambda.AWSLambdaException",
+                      "Lambda.SdkClientException",
+                      "Lambda.TooManyRequestsException",
+                      "States.TaskFailed"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6,
+                    "BackoffRate": 2
+                  }
+                ],
+                "Next": "Wait",
+                "ResultPath": "$.download_result",
+                "InputPath": "$.download_result.Payload"
+              },
+              "Wait": {
+                "Type": "Wait",
+                "Seconds": 180,
+                "Next": "Choice"
+              }
+            }
+          }
+
+        - { checknumrows: !Ref S3AutoRestoreMigrateChecknumrowsFunction, getqueryresults: !Ref S3AutoRestoreMigrateGetqueryresultsFunction, athenasplit: !Ref S3AutoRestoreMigrateAthenaSplitFunction, initiateflow: !Ref InitiateFlowFunction, listprefix: !Ref ListPrefixFunction, invokerestore: !Ref InvokeRestoreFunction, postworkflowtasks: !Ref PostWorkflowTasksFunction  }
+      RoleArn: !GetAtt [S3AutoRestoreMigrateStateMachine1Role, Arn]
+
+
+
+################################################ Code Ends ####################################################
+
+
+  S3AutoRestoreMigrateChecknumrowsFunctionIAMRole:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'athena:StartQueryExecution'
+                  - 's3:PutObject'
+                  - 's3:ListBucket'
+                  - 'athena:GetQueryResults'
+                  - 's3:ListMultipartUploadParts'
+                  - 'athena:GetWorkGroup'
+                  - 's3:AbortMultipartUpload'
+                  - 'athena:StopQueryExecution'
+                  - 'athena:GetQueryExecution'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetObject'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}/*
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}
+                  - !Sub "arn:${AWS::Partition}:athena:${AWS::Region}:${AWS::AccountId}:workgroup/querywrkgr-${StackNametoLower.change_to_lower}"
+              - Effect: Allow
+                Action:
+                  - 'glue:GetDatabase'
+                  - 'glue:GetDatabases'
+                  - 'glue:GetPartition'
+                  - 'glue:GetTables'
+                  - 'glue:GetPartitions'
+                  - 'glue:GetTable'
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/gluedb-${StackNametoLower.change_to_lower}/*"
+                  - !Sub "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/gluedb-${StackNametoLower.change_to_lower}"
+                  - !Sub "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:catalog"                
+
+
+  S3AutoRestoreMigrateChecknumrowsFunction:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Handler: index.lambda_handler
+      Role: !GetAtt S3AutoRestoreMigrateChecknumrowsFunctionIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 180
+      MemorySize: 128
+      Environment:
+        Variables:
+          csv_max_rows: !Ref MaxInvKeys
+          current_region: !Ref AWS::Region
+          glue_db: !Sub 'gluedb-${StackNametoLower.change_to_lower}'
+          glue_tbl: !Sub 'gluetable-${StackNametoLower.change_to_lower}'
+          s3_bucket: !Sub ${ArchiveBucket}
+          workgroup_name: !Sub 'querywrkgr-${StackNametoLower.change_to_lower}'
+          included_obj_versions: !Ref IncludedObjectVersions
+          storage_class_to_restore: !Ref ExistingArchiveStorageClass
+      Code:
+        ZipFile: |
+            import math
+            import json
+            import os
+            import uuid
+            import boto3
+            from botocore.exceptions import ClientError
+            import logging
+            import datetime
+            from urllib import parse
+
+
+            # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+
+
+            # Define Environmental Variables
+            my_glue_db = str(os.environ['glue_db'])
+            my_glue_tbl = str(os.environ['glue_tbl'])
+            my_workgroup_name = str(os.environ['workgroup_name'])
+            my_csv_max_rows = int(os.environ['csv_max_rows'])
+            my_s3_bucket = str(os.environ['s3_bucket'])
+            my_region = str(os.environ['current_region'])
+            my_incl_versions = str(os.environ['included_obj_versions'])
+            my_storage_class_to_restore = str(os.environ['storage_class_to_restore'])
+
+
+            # Set Service Client
+            athena_client = boto3.client('athena', region_name=my_region)
+            s3Client = boto3.client("s3", region_name=my_region)
+
+
+            ############# Athena Query Function #############
+            def start_query_execution(query_string, athena_db, workgroup_name):
+                logger.info(f'Starting Athena query...... with query string: {query_string}')
+                try:
+                    execute_query = athena_client.start_query_execution(
+                        QueryString=query_string,
+                        QueryExecutionContext={
+                            'Database': athena_db
+                        },
+                        WorkGroup=workgroup_name,
+                    )
+                except ClientError as e:
+                    logger.error(e)
+                    raise
+                else:
+                    logger.info(f'Query Successful: {execute_query}')
+                    return execute_query.get('QueryExecutionId')
+
+
+            def lambda_handler(event, context):
+                logger.info(f'Event details are: {event}')
+                s3Bucket = event.get('s3Bucket')
+                s3Key = parse.unquote_plus(event.get('s3Key'))
+                my_dt = s3Key.split('/')[-2].split('=')[-1]
+
+                ######  Start Athena Query ######
+
+                ### Condition for storage class to restore ###
+                archive_qr = None
+
+                if my_storage_class_to_restore == 'GLACIER':
+                    archive_qr = f"storage_class = 'GLACIER'"
+                elif my_storage_class_to_restore == 'DEEP_ARCHIVE':
+                    archive_qr = f"storage_class = 'DEEP_ARCHIVE'"
+                elif my_storage_class_to_restore == 'GLACIER_AND_DEEP_ARCHIVE':
+                    archive_qr = f'''(storage_class = 'GLACIER' OR storage_class = 'DEEP_ARCHIVE')'''
+
+
+                my_query_string = ''
+
+                ### Create Multiple Query String for Versioned and Non-Versioned Restores ###
+
+                my_query_string_no_version = f"""
+                SELECT count(*)
+                FROM "{my_glue_db}"."{my_glue_tbl}"
+                WHERE {archive_qr}
+                AND
+                is_latest = true
+                AND
+                is_delete_marker = false
+                AND
+                bucket = '{my_s3_bucket}'
+                AND
+                dt = '{my_dt}';
+                """
+
+                my_query_string_versioned  = f"""
+                SELECT count(*)
+                FROM "{my_glue_db}"."{my_glue_tbl}"
+                WHERE {archive_qr}
+                AND
+                is_delete_marker = false
+                AND
+                bucket = '{my_s3_bucket}'
+                AND
+                dt = '{my_dt}';
+                """
+
+                ###
+                if my_incl_versions == 'Current':
+                    my_query_string = my_query_string_no_version
+                elif my_incl_versions == 'All':
+                    my_query_string = my_query_string_versioned
+
+
+                try:
+                    my_query_execution_id = start_query_execution(my_query_string, my_glue_db, my_workgroup_name)
+                except Exception as e:
+                    logger.error(e)
+                    raise
+                return {
+                        's3Bucket' : s3Bucket,
+                        's3Key' : s3Key,
+                        'jobgroupid' : str(uuid.uuid4()),
+                        'my_dt' : my_dt,
+                        'my_query_execution_id' : my_query_execution_id,
+                        'my_s3_bucket': my_s3_bucket,
+                        }
+
+
+
+
+############################################### Code Ends ################################################################
+
+  S3AutoRestoreMigrateGetqueryresultsFunctionIAMRole:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:ListBucket'
+                  - 'athena:GetQueryResults'
+                  - 's3:ListMultipartUploadParts'
+                  - 'athena:GetWorkGroup'
+                  - 'athena:GetQueryExecution'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetObject'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}/*
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}
+                  - !Sub "arn:${AWS::Partition}:athena:${AWS::Region}:${AWS::AccountId}:workgroup/querywrkgr-${StackNametoLower.change_to_lower}"                  
+
+
+
+  S3AutoRestoreMigrateGetqueryresultsFunction:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Handler: index.lambda_handler
+      Role: !GetAtt S3AutoRestoreMigrateGetqueryresultsFunctionIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 180
+      MemorySize: 128
+      Environment:
+        Variables:
+          csv_max_rows: !Ref MaxInvKeys
+          current_region: !Ref AWS::Region
+          glue_db: !Sub 'gluedb-${StackNametoLower.change_to_lower}'
+          glue_tbl: !Sub 'gluetable-${StackNametoLower.change_to_lower}'
+          s3_bucket: !Sub ${ArchiveBucket}
+          workgroup_name: !Sub 'querywrkgr-${StackNametoLower.change_to_lower}'
+          included_obj_versions: !Ref IncludedObjectVersions
+          storage_class_to_restore: !Ref ExistingArchiveStorageClass
+      Code:
+        ZipFile: |
+            import math
+            import json
+            import os
+            import uuid
+            import boto3
+            from botocore.exceptions import ClientError
+            import logging
+            import datetime
+            from urllib import parse
+
+
+            # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+
+
+            # Define Environmental Variables
+            my_glue_db = str(os.environ['glue_db'])
+            my_glue_tbl = str(os.environ['glue_tbl'])
+            my_workgroup_name = str(os.environ['workgroup_name'])
+            my_csv_max_rows = int(os.environ['csv_max_rows'])
+            my_s3_bucket = str(os.environ['s3_bucket'])
+            my_region = str(os.environ['current_region'])
+            my_incl_versions = str(os.environ['included_obj_versions'])
+            my_storage_class_to_restore = str(os.environ['storage_class_to_restore'])
+
+
+            # Set Service Client
+            athena_client = boto3.client('athena', region_name=my_region)
+            s3Client = boto3.client("s3", region_name=my_region)
+
+            ############### Athena Get Query Results #######################
+
+            def get_query_result(query_execution_id):
+                logger.info(f'Getting Athena query results')
+                try:
+                    get_query_results = athena_client.get_query_results(
+                        QueryExecutionId=query_execution_id,
+                    )
+                except ClientError as e:
+                    logger.error(e)
+                    raise
+                else:
+                    logger.info(f'Successful')
+                    logger.info(get_query_results)
+                    query_result_count = int(get_query_results['ResultSet']['Rows'][1]['Data'][0]['VarCharValue'])
+                    logger.info(get_query_results)
+                    return query_result_count
+
+
+
+            def lambda_handler(event, context):
+                logger.info(event)
+                my_csv_num_rows = None
+                num_chunks = None
+                next_chunk = 0
+
+
+                ### Retrieve Required Parameters from Event ###
+
+                my_query_execution_id = str(event.get('my_query_execution_id'))
+                s3Bucket = str(event.get('s3Bucket'))
+                jobgroupid = event.get('jobgroupid')
+                my_dt = event.get('my_dt')
+
+                try:
+                    my_csv_num_rows = get_query_result(my_query_execution_id)
+                except Exception as e:
+                    logger.error(e)
+                    raise
+                else:
+                    num_chunks = my_csv_num_rows // my_csv_max_rows
+                    logger.info(num_chunks)
+                return {
+                        'num_chunks' : num_chunks,
+                        'my_csv_num_rows' : my_csv_num_rows,
+                        'csv_chunking_complete': False,
+                        'next_chunk' : next_chunk,
+                        'my_csv_max_rows' : my_csv_max_rows,
+                        's3Bucket' : s3Bucket,
+                        'jobgroupid' : jobgroupid,
+                        'my_dt' : my_dt,
+                        'my_s3_bucket': my_s3_bucket,
+                        }
+
+
+
+############################################## Code Ends ################################################################
+
+  S3AutoRestoreMigrateAthenaSplitFunctionIAMRole:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'athena:StartQueryExecution'
+                  - 's3:PutObject'
+                  - 's3:ListBucket'
+                  - 'athena:GetQueryResults'
+                  - 's3:ListMultipartUploadParts'
+                  - 'athena:GetWorkGroup'
+                  - 's3:AbortMultipartUpload'
+                  - 'athena:StopQueryExecution'
+                  - 'athena:GetQueryExecution'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetObject'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}/*
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}                  
+                  - !Sub "arn:${AWS::Partition}:athena:${AWS::Region}:${AWS::AccountId}:workgroup/querywrkgr-${StackNametoLower.change_to_lower}"
+              - Effect: Allow
+                Action:
+                  - 'glue:GetDatabase'
+                  - 'glue:GetDatabases'
+                  - 'glue:GetPartition'
+                  - 'glue:GetTables'
+                  - 'glue:GetPartitions'
+                  - 'glue:GetTable'
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:table/gluedb-${StackNametoLower.change_to_lower}/*"
+                  - !Sub "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:database/gluedb-${StackNametoLower.change_to_lower}"
+                  - !Sub "arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:catalog" 
+
+
+  S3AutoRestoreMigrateAthenaSplitFunction:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Handler: index.lambda_handler
+      Role: !GetAtt S3AutoRestoreMigrateAthenaSplitFunctionIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 180
+      MemorySize: 128
+      Environment:
+        Variables:
+          csv_max_rows: !Ref MaxInvKeys
+          current_region: !Ref AWS::Region
+          glue_db: !Sub 'gluedb-${StackNametoLower.change_to_lower}'
+          glue_tbl: !Sub 'gluetable-${StackNametoLower.change_to_lower}'
+          s3_bucket: !Sub ${ArchiveBucket}
+          workgroup_name: !Sub 'querywrkgr-${StackNametoLower.change_to_lower}'
+          included_obj_versions: !Ref IncludedObjectVersions
+          storage_class_to_restore: !Ref ExistingArchiveStorageClass
+      Code:
+        ZipFile: |
+            import math
+            import json
+            import os
+            import uuid
+            import boto3
+            from botocore.exceptions import ClientError
+            import logging
+            from urllib.parse import urlparse
+
+
+            # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+
+
+            # Define Environmental Variables
+            my_glue_db = str(os.environ['glue_db'])
+            my_glue_tbl = str(os.environ['glue_tbl'])
+            my_workgroup_name = str(os.environ['workgroup_name'])
+            my_region = str(os.environ['current_region'])
+            my_incl_versions = str(os.environ['included_obj_versions'])
+            my_storage_class_to_restore = str(os.environ['storage_class_to_restore'])
+
+
+            # Set Service Client
+            athena_client = boto3.client('athena', region_name=my_region)
+            s3Client = boto3.client("s3", region_name=my_region)
+
+
+            ############# Athena Query Function #############
+
+            def start_query_execution(query_string, athena_db, workgroup_name, query_output_location):
+                logger.info(f'Starting Athena query...... with query string: {query_string}')
+                try:
+                    execute_query = athena_client.start_query_execution(
+                        QueryString=query_string,
+                        QueryExecutionContext={
+                            'Database': athena_db
+                        },
+                        ResultConfiguration={
+                            'OutputLocation': query_output_location,
+                        },
+                        WorkGroup=workgroup_name,
+                    )
+                except ClientError as e:
+                    logger.error(e)
+                    raise
+                else:
+                    logger.info(f'Query Successful: {execute_query}')
+
+
+            def lambda_handler(event, context):
+                logger.info(f'Initiating Main Function...')
+                print(event)
+                s3Bucket = str(event.get('s3Bucket'))
+                my_s3_bucket = str(event.get('my_s3_bucket'))
+                chunk_num = int(event.get('next_chunk'))
+                next_chunk = int(event.get('next_chunk'))
+                num_chunks = int(event.get('num_chunks'))
+                my_csv_max_rows = int(event.get('my_csv_max_rows'))
+                my_csv_num_rows = int(event.get('my_csv_num_rows'))
+                csv_chunking_complete = event.get('csv_chunking_complete')
+                my_dt = event.get('my_dt')
+                jobgroupid = event.get('jobgroupid')
+                print(next_chunk)
+
+                ########## Define Athena Query ##########
+                my_query_string = ''
+
+                ### Condition for storage class to restore ###
+                archive_qr = None
+
+                if my_storage_class_to_restore == 'GLACIER':
+                    archive_qr = f"storage_class = 'GLACIER'"
+                elif my_storage_class_to_restore == 'DEEP_ARCHIVE':
+                    archive_qr = f"storage_class = 'DEEP_ARCHIVE'"
+                elif my_storage_class_to_restore == 'GLACIER_AND_DEEP_ARCHIVE':
+                    archive_qr = f'''(storage_class = 'GLACIER' OR storage_class = 'DEEP_ARCHIVE')'''
+
+                my_query_output_location = f's3://{s3Bucket}/athena-query-results/csv-chunks/{jobgroupid}/'
+                output_location_path = f'athena-query-results/csv-chunks/{jobgroupid}/'
+
+                ### Create Multiple Query String for Versioned and Non-Versioned Restores ###
+
+                my_query_string_no_version = f"""
+                SELECT bucket as "{my_s3_bucket}", key as "my_key"
+                FROM "{my_glue_db}"."{my_glue_tbl}"
+                WHERE {archive_qr}
+                AND
+                is_latest = true
+                AND
+                is_delete_marker = false
+                AND
+                bucket = '{my_s3_bucket}'
+                AND
+                dt = '{my_dt}'
+                ORDER BY last_modified_date ASC
+                OFFSET {next_chunk * my_csv_max_rows}
+                LIMIT {my_csv_max_rows};
+                """
+
+                my_query_string_versioned  = f"""
+                SELECT bucket as "{my_s3_bucket}", key as "my_key", CASE WHEN version_id IS NULL THEN 'null' ELSE version_id END as VersionId
+                FROM "{my_glue_db}"."{my_glue_tbl}"
+                WHERE {archive_qr}
+                AND
+                is_delete_marker = false
+                AND
+                bucket = '{my_s3_bucket}'
+                AND
+                dt = '{my_dt}'
+                ORDER BY last_modified_date ASC
+                OFFSET {next_chunk * my_csv_max_rows}
+                LIMIT {my_csv_max_rows};
+                """
+
+                ### Create Multiple Queries for Current and All Versions ###
+
+                if my_incl_versions == 'Current':
+                    my_query_string = my_query_string_no_version
+                elif my_incl_versions == 'All':
+                    my_query_string = my_query_string_versioned
+
+                logger.info(my_query_string)
+
+                try:
+                    start_query_execution(my_query_string, my_glue_db, my_workgroup_name, my_query_output_location)
+                except Exception as e:
+                    logger.error(e)
+                    raise
+                if next_chunk == num_chunks:
+                    csv_chunking_complete = True
+                else:
+                    next_chunk = chunk_num + 1
+
+                return {
+                        'num_chunks' : num_chunks,
+                        'next_chunk': next_chunk,
+                        'csv_chunking_complete': csv_chunking_complete,
+                        'my_csv_num_rows' : my_csv_num_rows,
+                        'my_csv_max_rows' : my_csv_max_rows,
+                        'my_dt' : my_dt,
+                        's3Bucket' : s3Bucket,
+                        'jobgroupid' : jobgroupid,
+                        'my_query_output_location': my_query_output_location,
+                        'output_location_path': output_location_path,
+                        'my_s3_bucket': my_s3_bucket,
+                        }
+
+
+
+
+
+############################################## Code Ends ###############################################################
+
+  S3AutoRestoreMigrateTriggerStateMachineFunctionIAMRole:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'states:StartExecution'
+                Resource: !GetAtt S3AutoRestoreMigrateStateMachine1.Arn
+
+
+  S3AutoRestoreMigrateTriggerStateMachineFunction:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64     
+      Handler: index.lambda_handler
+      Role: !GetAtt S3AutoRestoreMigrateTriggerStateMachineFunctionIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 180
+      MemorySize: 128
+      Environment:
+        Variables:
+          step_function_arn: !GetAtt S3AutoRestoreMigrateStateMachine1.Arn
+          current_region: !Ref AWS::Region
+      Code:
+        ZipFile: |
+            import json
+            import boto3
+            import uuid
+            import os
+            import logging
+            import json
+            from botocore.exceptions import ClientError
+            from botocore.client import Config
+            from urllib import parse
+
+            # Enable debugging for troubleshooting
+            # boto3.set_stream_logger("")
+
+
+            # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+
+            # Define Environmental Variables
+            my_state_machine_arn = str(os.environ['step_function_arn'])
+            my_region = str(os.environ['current_region'])
+
+            # Setup Service Client
+            client = boto3.client('stepfunctions', region_name=my_region)
+
+            def invoke_state_machine(state_machine_arn, inv_input, invocation_name):
+                try:
+                    response = client.start_execution(
+                        stateMachineArn=state_machine_arn,
+                        name=invocation_name,
+                        input=inv_input,
+                        # traceHeader='string'
+                    )
+                except ClientError as e:
+                    logger.error(e)
+                except Exception as e:
+                    logger.error(e)
+                else:
+                    logger.info(f"Invocation Successful")
+
+
+
+            def lambda_handler(event, context):
+                logger.info(event)
+
+                #### Get S3 Event Details #####
+
+                s3Bucket = str(event['Records'][0]['s3']['bucket']['name'])
+                s3Key = parse.unquote_plus(event['Records'][0]['s3']['object']['key'], encoding='utf-8')
+
+
+                ### Create Dict Input for the State machine invocation ###
+
+                state_machine_dict_input = {
+                                        's3Bucket': s3Bucket,
+                                        's3Key': s3Key,
+                                        }
+
+
+                # Convert to JSON String
+                state_machine_input = json.dumps(state_machine_dict_input)
+                logger.info(type(state_machine_input))
+                logger.info(state_machine_input)
+
+                my_invocation_name = str(uuid.uuid4())
+
+                # Call State Machine
+
+                invoke_state_machine(my_state_machine_arn, state_machine_input, my_invocation_name)
+
+                # Return Values
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps('State machine successfully invoked!')
+                }
+
+
+
+################################################ Code Ends ####################################################
+
+
+  InitiateFlowFunctionIAMRole:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutInventoryConfiguration'
+                  - 's3:GetBucketLocation'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${ArchiveBucket}
+              - Effect: Allow
+                Action:
+                  - 'sns:Publish'
+                Resource: !Ref S3AutoRestoreMigrateTopic
+
+
+
+  InitiateFlowFunction:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Handler: index.lambda_handler
+      Role: !GetAtt InitiateFlowFunctionIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 180
+      MemorySize: 128
+      Environment:
+        Variables:
+          src_bucket: !Sub ${ArchiveBucket}
+          sns_topic_arn: !Ref S3AutoRestoreMigrateTopic
+          inv_config_id: !Sub 'autorestorearchive-${StackNametoLower.change_to_lower}' 
+      Code:
+        ZipFile: |
+            import math
+            import json
+            import logging
+            import os
+            import boto3
+            from botocore.exceptions import ClientError
+
+
+            # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+
+            # Define Environmental Variables
+            my_region = str(os.environ['AWS_REGION'])
+            my_src_bucket = str(os.environ['src_bucket'])
+            my_sns_topic_arn = str(os.environ['sns_topic_arn'])
+            my_config_id = str(os.environ['inv_config_id'])
+
+            # Define Service Clients
+            s3client = boto3.client('s3', region_name=my_region)
+            sns = boto3.client('sns', region_name=my_region)
+
+
+            # SNS Message Function
+            def send_sns_message(sns_topic_arn, sns_message):
+                logger.info("Sending SNS Notification Message......")
+                sns_subject = 'Notification from AutoRestoreMigrate Solution'
+                try:
+                    response = sns.publish(TopicArn=sns_topic_arn, Message=sns_message, Subject=sns_subject)
+                except ClientError as e:
+                    logger.error(e)
+                    raise
+
+
+            def del_inventory_configuration(src_bucket, config_id):
+                try:
+                    logger.info(f"Starting the process to remove the S3 Inventory configuration {config_id}")
+                    response = s3client.delete_bucket_inventory_configuration(
+                        Bucket=src_bucket,
+                        Id=config_id,
+                    )
+                except Exception as e:
+                    logger.error(e)
+                    raise
+                else:
+                    logger.info(f"Successfully deleted the S3 Inventory configuration {config_id}")
+
+
+
+            def lambda_handler(event, context):
+                logger.info(f'Event detail is: {event}')
+                prefix = str(event.get('output_location_path'))
+                s3Bucket = str(event.get('s3Bucket'))
+                jobgroupid = str(event.get('jobgroupid'))
+                my_csv_num_rows = str(event.get('my_csv_num_rows'))
+                # Removing Inventory Configuration from the Archive Bucket #
+                del_inventory_configuration(my_src_bucket, my_config_id)
+                # Send SNS Message #
+                my_sns_message = f'Initiating Restore Workflow for {my_csv_num_rows} Keys in S3Bucket {my_src_bucket} for this JobGroup: {jobgroupid}..'
+                send_sns_message(my_sns_topic_arn, my_sns_message)
+                # ReturnValues
+                return {
+                    'prefix': prefix,
+                    's3Bucket' : s3Bucket,
+                    'jobgroupid': jobgroupid,
+                    'my_csv_num_rows': my_csv_num_rows,
+                }
+
+
+##################################### Code Ends ######################################################
+
+
+  ListPrefixFunctionIAMRole:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:ListBucket'
+                  - 's3:GetBucketLocation'
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${S3AutoRestoreMigrateS3Bucket}
+
+
+  ListPrefixFunction:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Handler: index.lambda_handler
+      Role: !GetAtt ListPrefixFunctionIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 180
+      MemorySize: 256
+      Code:
+        ZipFile: |
+            import math
+            import json
+            import os
+            import uuid
+            import boto3
+            from botocore.exceptions import ClientError
+            import logging
+
+
+            # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+
+
+            # Define Environmental Variables
+            my_region = str(os.environ['AWS_REGION'])
+
+
+            # Set Service Client
+            s3 = boto3.resource('s3', region_name=my_region)
+
+
+            def lambda_handler(event, context):
+                logger.info(f'Event detail is: {event}')
+                csv_files = []
+                item_count = 0
+                num_count = 0
+                item_loop_status = 'NotStarted'
+                bucketname = str(event.get('bucketname'))
+                prefix = str(event.get('prefix'))
+                jobgroupid = str(event.get('jobgroupid'))
+                my_csv_num_rows = str(event.get('my_csv_num_rows'))
+
+                # Instatiate Service API Parameters
+                mybucket = s3.Bucket(bucketname)
+
+                #### Initiate List Objects ####
+                try:
+                    all_objs = mybucket.objects.filter(Prefix=prefix)
+                    obj_keys = [obj.key for obj in all_objs if obj.key.endswith('.csv')]
+                except ClientError as e:
+                    logger.error(e)
+                    raise
+                else:
+                    csv_files = obj_keys
+                    item_count = len(csv_files)
+                    logger.info(f'item_count is: {item_count}')
+                #### Start variables ###
+                # Return Values
+                return {
+                    'item_count': item_count,
+                    'item_loop_status': item_loop_status,
+                    'csv_files': csv_files,
+                    'num_count': num_count,
+                    'bucketname': bucketname,
+                    'jobgroupid': jobgroupid,
+                    'my_csv_num_rows': my_csv_num_rows
+                }
+
+
+##################################### Code Ends ######################################################
+
+  PostWorkflowTasksFunctionIAMRole:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sns:Publish'
+                Resource: !Ref S3AutoRestoreMigrateTopic
+
+
+
+  PostWorkflowTasksFunction:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Handler: index.lambda_handler
+      Role: !GetAtt PostWorkflowTasksFunctionIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 180
+      MemorySize: 128
+      Environment:
+        Variables:
+          src_bucket: !Sub ${ArchiveBucket}
+          sns_topic_arn: !Ref S3AutoRestoreMigrateTopic
+      Code:
+        ZipFile: |
+            import math
+            import json
+            import logging
+            import os
+            import boto3
+            from botocore.exceptions import ClientError
+
+
+            # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+
+            # Define Environmental Variables
+            my_region = str(os.environ['AWS_REGION'])
+            my_src_bucket = str(os.environ['src_bucket'])
+            my_sns_topic_arn = str(os.environ['sns_topic_arn'])
+
+            # Define Service Clients
+            s3client = boto3.client('s3', region_name=my_region)
+            sns = boto3.client('sns', region_name=my_region)
+
+
+            # SNS Message Function
+            def send_sns_message(sns_topic_arn, sns_message):
+                logger.info("Sending SNS Notification Message......")
+                sns_subject = 'Notification from AutoRestoreMigrate Solution'
+                try:
+                    response = sns.publish(TopicArn=sns_topic_arn, Message=sns_message, Subject=sns_subject)
+                except ClientError as e:
+                    logger.error(e)
+                    raise
+
+
+            def lambda_handler(event, context):
+                logger.info(f'Event detail is: {event}')
+                jobgroupid = str(event.get('jobgroupid'))
+                my_csv_num_rows = str(event.get('my_csv_num_rows'))
+                # Send SNS Message #
+                my_sns_message = f'Completed Restore Workflow for {my_csv_num_rows} Keys in S3Bucket {my_src_bucket} for this JobGroup: {jobgroupid}. Please check your emails for further progress..'
+                send_sns_message(my_sns_topic_arn, my_sns_message)
+                # ReturnValues
+                return {
+                    'status': 200,
+                }
+
+
+
+##################################### Code Ends ######################################################
+
+  InvokeRestoreFunctionIAMRole:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: Permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource: !GetAtt RestoreWorker2Function.Arn
+
+
+
+  InvokeRestoreFunction:
+    DependsOn:
+      - CheckBucketExists     
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Architectures:
+        - arm64
+      Handler: index.lambda_handler
+      Role: !GetAtt InvokeRestoreFunctionIAMRole.Arn
+      Runtime: python3.9
+      Timeout: 180
+      MemorySize: 256
+      Environment:
+        Variables:
+          restore_function: !Ref RestoreWorker2Function
+          included_obj_versions: !Ref IncludedObjectVersions
+      Code:
+        ZipFile: |
+            import math
+            import json
+            import logging
+            import os
+            import boto3
+            from botocore.exceptions import ClientError
+
+
+            # Set up logging
+            logger = logging.getLogger(__name__)
+            logger.setLevel('INFO')
+            # boto3.set_stream_logger("")
+
+            # Define Environmental Variables
+            my_region = str(os.environ['AWS_REGION'])
+            restore_function_name = str(os.environ['restore_function'])
+            my_incl_versions = str(os.environ['included_obj_versions'])
+
+
+            # Other Variables
+            copy_invocation_type = 'RequestResponse'
+
+            ### Initiate Service Client
+            client = boto3.client('lambda', region_name=my_region)
+
+
+            # Function to Invoke Copy Function Worker
+            def invoke_function(function_name, invocation_type, payload):
+                try:
+                    invoke_response = client.invoke(
+                      FunctionName=function_name,
+                      InvocationType=invocation_type,
+                      Payload=payload,
+
+                    )
+                except ClientError as e:
+                    logger.error(e)
+                    raise
+                else:
+                    response_payload = json.loads(invoke_response['Payload'].read().decode("utf-8"))
+                    return response_payload
+
+
+
+            def lambda_handler(event, context):
+                logger.info(f'Event details: {event}')
+                keyname = None
+                num_fields = None
+                item_count = int(event.get('item_count'))
+                item_loop_status = 'Started'
+                csv_files = event.get('csv_files')
+                num_count = int(event.get('num_count'))
+                bucketname = event.get('bucketname')
+                jobgroupid = str(event.get('jobgroupid'))
+                my_csv_num_rows = str(event.get('my_csv_num_rows'))
+                logger.info(f"Item count is: {item_count}")
+                logger.info(f"num_count is: {num_count}")
+
+
+                # Check Execution Flow:
+                if num_count == item_count:
+                    item_loop_status = 'complete'
+                    logger.info(f'item_loop_status is: {item_loop_status}')
+                else:
+                    keyname = csv_files[num_count]
+                    logger.info(f'keyname is: {keyname}')
+                    # Generate Payload for Invocation:
+                    if my_incl_versions == 'Current':
+                        num_fields = 2
+                    elif my_incl_versions == 'All':
+                        num_fields = 3
+
+                    my_payload = {
+                        "Records": [{
+                            "s3": {
+                                "bucket": {
+                                    "name": bucketname
+                                },
+                                "object": {
+                                    "key": keyname
+                                }
+                            },
+                            "jobspec": {
+                                "fields": num_fields
+                            },
+                            "jobgroupid": jobgroupid,
+                        }]
+                    }
+
+                    my_payload_json = json.dumps(my_payload)
+                    logger.info(my_payload)
+                    logger.info(my_payload_json)
+
+                    # Start Copy Function Invoke
+                    invoke_restore_funct = invoke_function(restore_function_name, copy_invocation_type, my_payload_json)
+                    logger.info(invoke_restore_funct)
+                    invoke_status_code = invoke_restore_funct.get("statusCode")
+                    invoke_copy_job_id = invoke_restore_funct.get("body")
+
+                    num_count += 1
+
+                # Return Values
+                return {
+                    'item_count': item_count,
+                    'item_loop_status': item_loop_status,
+                    'csv_files': csv_files,
+                    'num_count': num_count,
+                    'bucketname': bucketname,
+                    'keyname': keyname,
+                    'jobgroupid': jobgroupid,
+                    'my_csv_num_rows': my_csv_num_rows,
+                }
+
+
+
+
+
+
+##################################### Code Ends ######################################################
+
+########################## End Main Body #####################
+
+
+
+
+Outputs:
+  BucketName:
+    Value: !Ref S3AutoRestoreMigrateS3Bucket
+    Description: Solution Amazon S3 Bucket to Upload Manifest and Access Batch Operations Job Reports.
+  ManifestUploadPrefixNoVersion:
+    Value: !FindInMap
+        - ManifestBucketinfo
+        - manifest
+        - csvnoversionid
+    Description: Please Upload a manifest without versionID here to start the Restore and Migrate Process
+  ManifestUploadPrefixWithVersion:
+    Value: !FindInMap
+        - ManifestBucketinfo
+        - manifest
+        - csvwithversionid
+    Description: Please Upload a manifest with versionID here to start the Restore and Migrate Process
+  BatchOperationsRestoreJobReportPrefix:
+    Value: !FindInMap
+        - ManifestBucketinfo
+        - batchopsreport
+        - restorejob
+    Description: Location to Access Batch Operations Restore Job Completion Reports
+  BatchOperationsCopyJobReportPrefix:
+    Value: !FindInMap
+        - ManifestBucketinfo
+        - batchopsreport
+        - copyjob
+    Description: Location to Access Batch Operations Copy Job Completion Reports
+  TableName:
+    Value: !Ref S3AutoRestoreMigrateDynamoDBTable
+    Description: Table name of the Solution DynamoDB Table
+  ArchivedObjectsStorageClass:
+    Value: !Ref ExistingArchiveStorageClass
+    Description: The Storage Class of Your Existing Archived Objects
