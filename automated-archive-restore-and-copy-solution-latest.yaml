@@ -227,7 +227,7 @@ Parameters:
     Type: String
 
   RecipientEmail:
-    Description: Please enter the Email address to receive Job notifications. Please remember to Confirm the Subsciption
+    Description: Please enter the Email address to receive Job notifications. Please remember to Confirm the Subscription
     Type: String
     MinLength: '5'
     MaxLength: '150'
