@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: An Amazon S3 Batch Operations based Solution to Automate Amazon S3 Bucket Archive Object Restore and Copy.
+Description: An Amazon S3 Batch Operations based Solution to Automate Amazon S3 Bucket Archive Object Restore and Copy - SO9256.
 Metadata:
   License:
     Description: >-
