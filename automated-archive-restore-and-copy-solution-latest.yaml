@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: An Amazon S3 Batch Operations based Solution to Automate Amazon S3 Bucket Archive Object Restore and Copy.
+Description: An Amazon S3 Batch Operations based Solution to Automate Amazon S3 Bucket Archive Object Restore and Copy - SO9256.
 Metadata:
   License:
     Description: >-
@@ -145,7 +145,7 @@ Parameters:
     Type: Number
     MinValue: 10
     MaxValue: 940    
-    Default: 150
+    Default: 940
     ConstraintDescription: Concurrent Requests Value must be a Valid Integer and within the range of 10 to 940
 
   SDKMaxPoolConnections:
@@ -153,7 +153,7 @@ Parameters:
     Type: Number
     MinValue: 10
     MaxValue: 940    
-    Default: 150
+    Default: 940
     ConstraintDescription: Concurrent Requests Value must be a Valid Integer and within the range of 10 to 940
 
   SDKMaxErrorRetries:
@@ -292,6 +292,8 @@ Resources:
     DependsOn:
       - CheckBucketExists   
     Type: AWS::SNS::Topic
+    Properties: 
+      KmsMasterKeyId: alias/aws/sns    
 
 
   S3AutoRestoreMigrateTopicSubscription:
@@ -409,9 +411,7 @@ Resources:
 
   CheckBucketExistsIAMRole:
     Type: 'AWS::IAM::Role'
-    Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+    Properties:  
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -423,6 +423,16 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow       
         - PolicyName: Permissions
           PolicyDocument:
             Version: 2012-10-17
@@ -545,8 +555,17 @@ Resources:
       - CheckBucketExists  
     Type: AWS::IAM::Role
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow       
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -712,9 +731,17 @@ Resources:
       - CheckBucketExists   
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow      
         - PolicyName: GrantFunctioAdditionalPerm
           PolicyDocument:
             Version: "2012-10-17"
@@ -731,7 +758,7 @@ Resources:
                   - 's3:ListJobs'
                   - 's3:PutJobTagging'
                   - 's3:CreateJob'
-                Resource: '*'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:${AWS::Region}:${AWS::AccountId}:job/*'
                 Effect: Allow
               - Action:
                   - 'iam:PassRole'
@@ -945,9 +972,17 @@ Resources:
       - CheckBucketExists   
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow              
         - PolicyName: GrantFunctioAdditionalPerm
           PolicyDocument:
             Version: "2012-10-17"
@@ -964,7 +999,7 @@ Resources:
                   - 's3:ListJobs'
                   - 's3:PutJobTagging'
                   - 's3:CreateJob'
-                Resource: '*'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:${AWS::Region}:${AWS::AccountId}:job/*'
                 Effect: Allow
               - Action:
                   - 'iam:PassRole'
@@ -1185,9 +1220,17 @@ Resources:
       - CheckBucketExists   
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow      
         - PolicyName: GrantFunctioAdditionalPerm
           PolicyDocument:
             Version: "2012-10-17"
@@ -1204,7 +1247,7 @@ Resources:
                   - 's3:ListJobs'
                   - 's3:PutJobTagging'
                   - 's3:CreateJob'
-                Resource: '*'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:${AWS::Region}:${AWS::AccountId}:job/*'
                 Effect: Allow
               - Action:
                   - 'iam:PassRole'
@@ -1420,9 +1463,17 @@ Resources:
       - CheckBucketExists   
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow      
         - PolicyName: GrantFunctioAdditionalPerm
           PolicyDocument:
             Version: "2012-10-17"
@@ -1436,7 +1487,7 @@ Resources:
                   - 's3:DescribeJob'
                   - 's3:GetJobTagging'
                   - 's3:ListJobs'
-                Resource: '*'
+                Resource: !Sub 'arn:${AWS::Partition}:s3:${AWS::Region}:${AWS::AccountId}:job/*'
                 Effect: Allow
               - Action:
                   - 'sns:Publish'
@@ -1696,9 +1747,17 @@ Resources:
       - CheckBucketExists   
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow      
         - PolicyName: GrantFunctioAdditionalPerm
           PolicyDocument:
             Version: "2012-10-17"
@@ -1917,9 +1976,17 @@ Resources:
       - S3AutoRestoreMigrateS3Bucket
       - CheckBucketExists
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow      
         - PolicyName: GrantFunctioAdditionalPerm
           PolicyDocument:
             Version: "2012-10-17"
@@ -2268,9 +2335,17 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow      
         - PolicyName: S3BatchCopyLambdaFunctionIamRolePolicy0
           PolicyDocument:
             Version: "2012-10-17"
@@ -2658,8 +2733,6 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -2671,6 +2744,16 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow              
         - PolicyName: Permissions
           PolicyDocument:
             Version: 2012-10-17
@@ -2827,8 +2910,6 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -2840,6 +2921,16 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow              
         - PolicyName: Permissions
           PolicyDocument:
             Version: 2012-10-17
@@ -2942,8 +3033,6 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -2952,7 +3041,7 @@ Resources:
               Service: states.amazonaws.com
             Action: 'sts:AssumeRole'
       Path: '/'
-      Policies:
+      Policies:        
         - PolicyName: LambdaInvokeScopedAccessPolicy
           PolicyDocument:
             Version: '2012-10-17'
@@ -3001,7 +3090,7 @@ Resources:
             "States": {
               "Checknumrows": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
+                "Resource": "${lambdainvoke}",
                 "Parameters": {
                   "Payload.$": "$",
                   "FunctionName": "${checknumrows}"
@@ -3025,12 +3114,12 @@ Resources:
               },
               "Wait for Query Process": {
                 "Type": "Wait",
-                "Seconds": 180,
+                "Seconds": 300,
                 "Next": "Getqueryresults"
               },
               "Getqueryresults": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
+                "Resource": "${lambdainvoke}",
                 "Parameters": {
                   "Payload.$": "$",
                   "FunctionName": "${getqueryresults}"
@@ -3071,7 +3160,7 @@ Resources:
               },
               "InitiateFlow": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
+                "Resource": "${lambdainvoke}",
                 "Parameters": {
                   "Payload.$": "$",
                   "FunctionName": "${initiateflow}"
@@ -3101,7 +3190,7 @@ Resources:
               },
               "ListPrefix": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
+                "Resource": "${lambdainvoke}",
                 "Parameters": {
                   "Payload.$": "$",
                   "FunctionName": "${listprefix}"
@@ -3141,7 +3230,7 @@ Resources:
               },
               "PostWorkflowTasks": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
+                "Resource": "${lambdainvoke}",
                 "Parameters": {
                   "Payload.$": "$",
                   "FunctionName": "${postworkflowtasks}"
@@ -3164,7 +3253,7 @@ Resources:
               },
               "InvokeRestore": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
+                "Resource": "${lambdainvoke}",
                 "Parameters": {
                   "Payload.$": "$",
                   "FunctionName": "${invokerestore}"
@@ -3197,7 +3286,7 @@ Resources:
               },
               "AthenaSplit": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
+                "Resource": "${lambdainvoke}",
                 "Parameters": {
                   "Payload.$": "$",
                   "FunctionName": "${athenasplit}"
@@ -3222,13 +3311,13 @@ Resources:
               },
               "Wait": {
                 "Type": "Wait",
-                "Seconds": 180,
+                "Seconds": 300,
                 "Next": "Choice"
               }
             }
           }
 
-        - { checknumrows: !Ref S3AutoRestoreMigrateChecknumrowsFunction, getqueryresults: !Ref S3AutoRestoreMigrateGetqueryresultsFunction, athenasplit: !Ref S3AutoRestoreMigrateAthenaSplitFunction, initiateflow: !Ref InitiateFlowFunction, listprefix: !Ref ListPrefixFunction, invokerestore: !Ref InvokeRestoreFunction, postworkflowtasks: !Ref PostWorkflowTasksFunction  }
+        - { lambdainvoke: !Sub "arn:${AWS::Partition}:states:::lambda:invoke" , checknumrows: !Ref S3AutoRestoreMigrateChecknumrowsFunction, getqueryresults: !Ref S3AutoRestoreMigrateGetqueryresultsFunction, athenasplit: !Ref S3AutoRestoreMigrateAthenaSplitFunction, initiateflow: !Ref InitiateFlowFunction, listprefix: !Ref ListPrefixFunction, invokerestore: !Ref InvokeRestoreFunction, postworkflowtasks: !Ref PostWorkflowTasksFunction  }
       RoleArn: !GetAtt [S3AutoRestoreMigrateStateMachine1Role, Arn]
 
 
@@ -3241,8 +3330,6 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -3254,6 +3341,16 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow      
         - PolicyName: Permissions
           PolicyDocument:
             Version: 2012-10-17
@@ -3444,8 +3541,6 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -3457,6 +3552,16 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow              
         - PolicyName: Permissions
           PolicyDocument:
             Version: 2012-10-17
@@ -3595,8 +3700,6 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -3608,6 +3711,16 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow              
         - PolicyName: Permissions
           PolicyDocument:
             Version: 2012-10-17
@@ -3827,8 +3940,6 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -3840,6 +3951,16 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow              
         - PolicyName: Permissions
           PolicyDocument:
             Version: 2012-10-17
@@ -3954,8 +4075,6 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -3967,6 +4086,16 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow              
         - PolicyName: Permissions
           PolicyDocument:
             Version: 2012-10-17
@@ -4080,8 +4209,6 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -4093,6 +4220,16 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow              
         - PolicyName: Permissions
           PolicyDocument:
             Version: 2012-10-17
@@ -4186,8 +4323,6 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -4199,6 +4334,16 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow              
         - PolicyName: Permissions
           PolicyDocument:
             Version: 2012-10-17
@@ -4282,8 +4427,6 @@ Resources:
       - CheckBucketExists     
     Type: 'AWS::IAM::Role'
     Properties:
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -4295,6 +4438,16 @@ Resources:
               - 'sts:AssumeRole'
       Path: /
       Policies:
+        - PolicyName: AWSLambdaBasicExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'                  
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                Effect: Allow              
         - PolicyName: Permissions
           PolicyDocument:
             Version: 2012-10-17
