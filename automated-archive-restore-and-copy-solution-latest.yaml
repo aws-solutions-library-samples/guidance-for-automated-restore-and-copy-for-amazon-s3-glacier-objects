@@ -145,7 +145,7 @@ Parameters:
     Type: Number
     MinValue: 10
     MaxValue: 940    
-    Default: 940
+    Default: 200
     ConstraintDescription: Concurrent Requests Value must be a Valid Integer and within the range of 10 to 940
 
   SDKMaxPoolConnections:
@@ -153,7 +153,7 @@ Parameters:
     Type: Number
     MinValue: 10
     MaxValue: 940    
-    Default: 940
+    Default: 200
     ConstraintDescription: Concurrent Requests Value must be a Valid Integer and within the range of 10 to 940
 
   SDKMaxErrorRetries:
