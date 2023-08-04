@@ -96,23 +96,27 @@ Parameters:
     MinLength: '0'
     MaxLength: '1024'
 
+
   JobSchedulerScheduleCronExpressions:
     Description: Specify how often the Eventbridge invokes the Job Scheduler worker function
     Type: String
     MinLength: '1'
     MaxLength: '1024'
     ConstraintDescription: Value must be a Valid Eventbridge Cron Expression!
-    Default: rate(4 hours)
+    Default: rate(30 minutes)
     AllowedValues:
-      - rate(4 hours)
-      - rate(2 hours)
+      - rate(15 minutes)       
+      - rate(30 minutes)    
+      - rate(1 hour)    
+      - rate(2 hours)    
+      - rate(4 hours)    
 
   ArchiveObjectRestoreDays:
     Type: Number
     MinValue: 1
     MaxValue: 10
-    ConstraintDescription: Please Choose an Appropriate Value
-    Default: '3'
+    ConstraintDescription: Please Choose the number of days you want to retain the restored temporary copy. Allowed values are between 1 and 10. 
+    Default: '2'
 
   ArchiveRestoreTier:
     Type: String
