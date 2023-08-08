@@ -420,7 +420,7 @@ function, Athena, SNS, S3 requests and Lambda function invocation costs.
 2.1 PB in Glacier Flexible Retrieval in US-EAST-2 to Standard (Archive
 S3 bucket and Batch Operations API Costs not included)]{.underline}
 
-![](media/image12.png){width="6.5in" height="3.1590277777777778in"}
+![](media/image12.png)
 
 ## Cleaning up
 
