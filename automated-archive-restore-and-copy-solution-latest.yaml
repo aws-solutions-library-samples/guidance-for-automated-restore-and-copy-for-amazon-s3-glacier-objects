@@ -630,7 +630,10 @@ Resources:
       ServiceToken: !GetAtt S3AutoRestoreMigrateCustomResourceLambdaFunction.Arn
       MyBucketwithArchives: !Ref ArchiveBucket
       ArchiveBucketPrefix: !Ref ArchiveBucketPrefix
+      MyExistingObjectVersions: !Ref IncludedObjectVersions
       MyS3InventoryDestinationBucket: !Ref S3AutoRestoreMigrateS3Bucket
+      MyExistingArchiveClass: !Ref ExistingArchiveStorageClass
+      MyDestinationBucketPrefix: !Ref BucketForCopyDestinationPrefix
 
   LambdaTrigger2:
     Type: 'Custom::LambdaTrigger'
