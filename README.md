@@ -26,7 +26,7 @@ data
 
 **High Level Overview**
 
-![](media/image1.jpg){width="6.5in" height="2.129861111111111in"}
+![](media/image1.jpg)
 
 **AWS Services used:**
 
@@ -48,11 +48,11 @@ data
 
 **Solution Core:**
 
-![](media/image2.png){width="6.5in" height="3.656248906386702in"}
+![](media/image2.png)
 
 **Inventory/Manifest Generation, Chunking and Optimization Component**
 
-![](media/image3.png){width="6.5in" height="3.656248906386702in"}
+![](media/image3.png)
 
 ### Prerequisites
 
@@ -83,7 +83,7 @@ need to have the following resources:
     destination S3 bucket to confirm the object has been copied
     successfully.
 
-![](media/image4.png){width="6.5in" height="2.6902777777777778in"}
+![](media/image4.png)
 
 ### Deployment
 
@@ -143,15 +143,15 @@ need to have the following resources:
 
 **Cloudformation Console Screenshots:**
 
-![](media/image5.png){width="6.5in" height="2.888888888888889in"}
+![](media/image5.png)
 
-![](media/image6.png){width="6.5in" height="2.0208333333333335in"}
+![](media/image6.png)
 
-![](media/image7.png){width="6.5in" height="1.511111111111111in"}
+![](media/image7.png)
 
-![](media/image8.png){width="6.5in" height="1.113888888888889in"}
+![](media/image8.png)
 
-![](media/image9.png){width="6.5in" height="3.0791666666666666in"}
+![](media/image9.png)
 
 Please remember to confirm the Amazon SNS notification Subscription sent
 to the email address you provided earlier. Confirming the subscription
@@ -253,7 +253,7 @@ name, please goto the CloudFormation stack you just created, choose the
 Output section and copy the Value of "**BucketName"** see sample
 screenshot below:
 
-![](media/image10.png){width="6.5in" height="3.084722222222222in"}
+![](media/image10.png)
 
 Next go to Amazon S3 Management Console, Buckets and search for the
 bucket name. Choose the S3 bucket name and navigate to the
@@ -261,7 +261,7 @@ bucket name. Choose the S3 bucket name and navigate to the
 uploading a manifest for objects without a [**version-id** or with
 **version-ids**](https://docs.aws.amazon.com/AmazonS3/latest/userguide/batch-ops-create-job.html#specify-batchjob-manifest).
 
-![](media/image11.png){width="6.5in" height="2.3979166666666667in"}
+![](media/image11.png)
 
 For example, if the bucket containing your Archived data does not have
 versioning enabled you should upload the CSV manifest to the
@@ -420,7 +420,7 @@ function, Athena, SNS, S3 requests and Lambda function invocation costs.
 2.1 PB in Glacier Flexible Retrieval in US-EAST-2 to Standard (Archive
 S3 bucket and Batch Operations API Costs not included)]{.underline}
 
-![](media/image12.png){width="6.5in" height="3.1590277777777778in"}
+![](media/image12.png)
 
 ## Cleaning up
 
