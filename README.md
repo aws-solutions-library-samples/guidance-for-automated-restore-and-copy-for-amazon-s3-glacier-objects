@@ -149,9 +149,9 @@ need to have the following resources:
 
 ![](media/image7.png)
 
-![](media/image8.png){width="6.5in" height="1.113888888888889in"}
+![](media/image8.png)
 
-![](media/image9.png){width="6.5in" height="3.0791666666666666in"}
+![](media/image9.png)
 
 Please remember to confirm the Amazon SNS notification Subscription sent
 to the email address you provided earlier. Confirming the subscription
@@ -253,7 +253,7 @@ name, please goto the CloudFormation stack you just created, choose the
 Output section and copy the Value of "**BucketName"** see sample
 screenshot below:
 
-![](media/image10.png){width="6.5in" height="3.084722222222222in"}
+![](media/image10.png)
 
 Next go to Amazon S3 Management Console, Buckets and search for the
 bucket name. Choose the S3 bucket name and navigate to the
@@ -261,7 +261,7 @@ bucket name. Choose the S3 bucket name and navigate to the
 uploading a manifest for objects without a [**version-id** or with
 **version-ids**](https://docs.aws.amazon.com/AmazonS3/latest/userguide/batch-ops-create-job.html#specify-batchjob-manifest).
 
-![](media/image11.png){width="6.5in" height="2.3979166666666667in"}
+![](media/image11.png)
 
 For example, if the bucket containing your Archived data does not have
 versioning enabled you should upload the CSV manifest to the
