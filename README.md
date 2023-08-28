@@ -121,7 +121,7 @@ need to have the following resources:
 |  CopyTagging                        | Enable or disable copying source object tags to destination |
 |  StorageClass                       | Choose the desired destination storage class |
 |  RecipientEmail                     | User email address to receive Job notifications. Please remember to Confirm the Subscription |
-|  MaxInvKeys                         | Specify the maximum number of keys in each manifest and Batch operations Job. For larger object sizes for example above 50GB, please consider choosing a smaller value for example 1 |
+|  MaxInvKeys                         | Specify the maximum number of keys in each manifest and Batch operations Job. For larger individual object sizes, for example, tens or hundreds of gigabytes to terabytes, consider choosing a smaller value. |
 |  TransferMaximumConcurrency         | AWS SDK parameter, maximum number of concurrent requests SDK uses \[See Performance and Troubleshooting Section below\] |
 |  SDKMaxPoolConnections              | AWS SDK parameter, maximum number of connections SDK keeps in a connection pool \[See Performance and Troubleshooting Section below\] |
 |  SDKMaxErrorRetries                 | AWS SDK parameter, number of SDK error retries \[See Performance and Troubleshooting Section below\] |
@@ -418,7 +418,7 @@ function, Athena, SNS, S3 requests and Lambda function invocation costs.
 
 [Example solution cost for restoring and copying 10,738,039 objects and
 2.1 PB in Glacier Flexible Retrieval in US-EAST-2 to Standard (Archive
-S3 bucket and Batch Operations API Costs not included)]{.underline}
+S3 bucket and Batch Operations API Costs not included)]
 
 ![](media/image12.png)
 
