@@ -36,6 +36,8 @@ data
 
 [AWS Lambda](https://aws.amazon.com/lambda/)
 
+[Amazon DynamoDB](https://aws.amazon.com/dynamodb/)
+
 [Amazon Eventbridge](https://aws.amazon.com/eventbridge/)
 
 [AWS Glue](https://aws.amazon.com/glue/)

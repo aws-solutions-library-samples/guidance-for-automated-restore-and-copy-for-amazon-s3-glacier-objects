@@ -1286,7 +1286,7 @@ Resources:
               - ManifestBucketinfo
               - batchopsreport
               - copyjob
-          batch_ops_invoke_lambda: !Ref S3BatchCopyLambdafunction
+          batch_ops_invoke_lambda: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${S3BatchCopyLambdafunction}'
           batch_ops_role: !GetAtt S3BatchOperationsServiceIamRole.Arn
           my_current_region: !Sub ${AWS::Region}
           my_account_id: !Sub ${AWS::AccountId}
