@@ -1,4 +1,4 @@
-## Description
+## Guidance for Automated Restore and Copy for Amazon S3 Glacier Objects
 
 [Amazon S3](https://aws.amazon.com/s3/) Automated Archive Restore and
 Copy solution provides an automated workflow to restore archived S3 data
