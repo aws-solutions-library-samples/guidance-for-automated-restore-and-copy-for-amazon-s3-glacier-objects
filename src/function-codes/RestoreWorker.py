@@ -47,7 +47,7 @@ sns = boto3.client('sns', region_name=my_region)
 # SNS Message Function
 def send_sns_message(sns_topic_arn, sns_message):
     logger.info("Sending SNS Notification Message......")
-    sns_subject = 'Notification from AutoRestoreMigrate Solution'
+    sns_subject = 'Notification from AutoRestoreCopy Solution'
     try:
         response = sns.publish(TopicArn=sns_topic_arn, Message=sns_message, Subject=sns_subject)
     except ClientError as e:
@@ -77,7 +77,7 @@ def s3_batch_ops_restore(manifest_bucket, manifest_key):
     manifest_key_object_etag = get_manifest_etag(manifest_bucket, manifest_key)
 
     # Set Description #
-    my_job_description = f"Restore Job by AutoRestoreMigrate Solution for S3Bucket: {my_s3_bucket}"                
+    my_job_description = f"Restore Job by AutoRestoreCopy Solution for S3Bucket: {my_s3_bucket}"                
 
     # Set Manifest format and Specify Manifest Fields #
     manifest_format = None
