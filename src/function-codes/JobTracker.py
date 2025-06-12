@@ -16,6 +16,9 @@ logger.setLevel('INFO')
 accountId = str(os.environ['my_account_id'])
 my_region = str(os.environ['my_current_region'])
 my_sns_topic_arn = str(os.environ['my_sns_topic_arn'])
+my_archive_storage_class = str(os.environ['existing_archive_storage_class'])
+my_archive_copy_mechanism = str(os.environ['archive_copy_mechanism'])
+
 
 # Create Service Clients
 dynamodb = boto3.resource('dynamodb', region_name=my_region)
@@ -28,7 +31,7 @@ table = dynamodb.Table(str(os.environ['job_ddb']))
 
 # SNS Message Function
 def send_sns_message(sns_topic_arn, sns_message):
-    sns_subject = 'Notification from AutoRestoreMigrate Solution'
+    sns_subject = 'Notification from AutoRestoreCopy Solution'
     logger.info("Sending SNS Notification Message......")
     try:
         response = sns.publish(TopicArn=sns_topic_arn, Message=sns_message, Subject=sns_subject)
@@ -41,6 +44,7 @@ def create_ddb_entry(
         job_status,
         job_operation,
         job_tier,
+        archive_storage_class,
         job_arn,
         date_created,
         date_completed,
@@ -61,6 +65,7 @@ def create_ddb_entry(
                 'restore_job_status': job_status,
                 'job_operation': job_operation,
                 'restore_job_tier': job_tier,
+                'restored_archive_storage_class': archive_storage_class,
                 'restore_job_arn': job_arn,
                 'restore__date_created': date_created,
                 'restore_date_completed': date_completed,
@@ -144,7 +149,13 @@ def lambda_handler(event, context):
         job_creation_datetime = str(my_job_details.get('CreationTime'))
         job_completion_datetime = str(my_job_details.get('TerminationDate'))
         number_of_tasks = my_job_details.get('ProgressSummary').get('TotalNumberOfTasks')
-        number_of_fields = str(len(my_job_details.get('Manifest').get('Spec').get('Fields')))
+        # S3 Batch Ops with ManifestGenerator number of fields defaults to 3
+        number_of_fields = None
+        try:
+            if my_job_details.get('ManifestGenerator').get('S3JobManifestGenerator').get('SourceBucket'):
+                number_of_fields = str(3)
+        except AttributeError:
+            number_of_fields = str(len(my_job_details.get('Manifest').get('Spec').get('Fields')))
         tasks_succeeded = my_job_details.get('ProgressSummary').get('NumberOfTasksSucceeded')
         tasks_failed = my_job_details.get('ProgressSummary').get('NumberOfTasksFailed')
         logger.info(f'Number of Tasks: {number_of_tasks}')
@@ -160,7 +171,12 @@ def lambda_handler(event, context):
                 my_sns_message = f'All Tasks Failed! Please check the Batch Operations Job JobID {job_id} Completion Report in the Amazon S3 Console for more details.'
                 send_sns_message(my_sns_topic_arn, my_sns_message)
             else:
-                set_copy_job_status = 'NotStarted'
+                if my_archive_copy_mechanism == 'Copy with Batch Operations and Lambda after delay period':
+                    logger.info('Use Batch Operations for Copy')
+                    set_copy_job_status = 'NotStarted'
+                elif my_archive_copy_mechanism == 'Copy immediately restore is completed with S3 Event notifications':
+                    logger.info('Use Eventbridge, SQS and Lambda for Copy')
+                    set_copy_job_status = 'EventbridgeMode'        
         job_details = str(my_job_details)
         # Only work on Tagged Jobs
         job_tag_key, job_tag_value = get_job_tagging(job_id)
@@ -177,6 +193,7 @@ def lambda_handler(event, context):
                     job_status,
                     job_operation,
                     job_tier,
+                    my_archive_storage_class,
                     job_arn,
                     job_creation_datetime,
                     job_completion_datetime,

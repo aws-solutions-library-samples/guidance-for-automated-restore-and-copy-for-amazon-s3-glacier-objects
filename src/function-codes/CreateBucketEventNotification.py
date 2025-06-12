@@ -40,6 +40,10 @@ struct_value_1 = str(os.environ['bucket_path_a'])
 struct_value_2 = str(os.environ['bucket_path_b'])
 struct_value_3 = str(os.environ['bucket_path_c'])
 struct_value_4 = str(os.environ['bucket_path_d'])
+struct_value_5 = str(os.environ['bucket_path_e'])
+struct_value_6 = str(os.environ['bucket_path_f'])
+struct_value_7 = str(os.environ['bucket_path_g'])
+struct_value_8 = str(os.environ['bucket_path_h'])
 
 
 bucket_structure = [
@@ -47,6 +51,10 @@ bucket_structure = [
     struct_value_2,
     struct_value_3,
     struct_value_4,
+    struct_value_5,
+    struct_value_6,
+    struct_value_7,
+    struct_value_8
 
 ]
 
@@ -153,7 +161,7 @@ def bucket_put_event_notification(s3Bucket, my_event_one_fn_arn, my_event_two_fn
                               ]
                           }
                       }
-                  },
+                  },                            
               ],
           },
           SkipDestinationValidation=True
@@ -183,7 +191,8 @@ def lambda_handler(event, context):
   my_event_one_fn_arn_value = event.get("ResourceProperties").get("bucket_event_destination_lambda")
   my_event_two_fn_arn_value = event.get("ResourceProperties").get("bucket_event_destination_lambda_1")
   my_event_three_fn_arn_value = event.get("ResourceProperties").get("bucket_event_destination_lambda")
-  my_event_four_fn_arn_value = event.get("ResourceProperties").get("bucket_event_destination_lambda_state_function")
+  my_event_four_fn_arn_value = event.get("ResourceProperties").get("bucket_event_destination_redrivecopy")
+  
 
   if event.get('RequestType') == 'Create':
     logger.info(event)
@@ -225,7 +234,7 @@ def lambda_handler(event, context):
     logger.info(event)
     try:
       logger.info("Initiating Bucket Notification Configuration Update")
-      bucket_put_event_notification(my_bucket, my_event_one_fn_arn_value, my_event_two_fn_arn_value, my_event_three_fn_arn_value, my_event_four_fn_arn_value)
+      bucket_put_event_notification(my_bucket, my_event_one_fn_arn_value, my_event_two_fn_arn_value, my_event_three_fn_arn_value)
       responseData = {}
       responseData['message'] = "Successful"
       logger.info(f"Sending Invocation Response {responseData['message']} to Cloudformation Service")

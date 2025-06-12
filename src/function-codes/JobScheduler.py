@@ -23,7 +23,7 @@ client = boto3.client('lambda', region_name=my_region)
 ### Initiate Variables ######
 table = dynamodb.Table(str(os.environ['job_ddb']))
 copy_function_name = str(os.environ['copy_function'])
-my_archive_storage_class = str(os.environ['existing_archive_storage_class'])
+# my_archive_storage_class = str(os.environ['existing_archive_storage_class'])
 my_gfr_standard_retrieval_delay = int(os.environ['gfr_standard_retrieval_delay'])
 my_gfr_bulk_retrieval_delay = int(os.environ['gfr_bulk_retrieval_delay'])
 my_gda_standard_retrieval_delay = int(os.environ['gda_standard_retrieval_delay'])
@@ -31,25 +31,6 @@ my_gda_bulk_retrieval_delay = int(os.environ['gda_bulk_retrieval_delay'])
 
 # Other Variables
 copy_invocation_type = 'RequestResponse'
-
-
-# Define Copy Job Initiation Delay parameters based on Archive Class #
-# Define Parameters #
-standard_restore_copy_job_delay = None
-bulk_restore_copy_job_delay = None
-
-if my_archive_storage_class == 'GLACIER':
-    standard_restore_copy_job_delay = my_gfr_standard_retrieval_delay
-    bulk_restore_copy_job_delay = my_gfr_bulk_retrieval_delay
-    logger.info(
-        f"Delay time set for Glacier are Std: {standard_restore_copy_job_delay} and Bulk: {bulk_restore_copy_job_delay}")
-
-elif my_archive_storage_class == 'DEEP_ARCHIVE' or 'GLACIER_AND_DEEP_ARCHIVE':
-    standard_restore_copy_job_delay = my_gda_standard_retrieval_delay
-    bulk_restore_copy_job_delay = my_gda_bulk_retrieval_delay
-    logger.info(
-        f"Delay time set for Deep_Archive are Std: {standard_restore_copy_job_delay} and Bulk: {bulk_restore_copy_job_delay}")
-
 
 # Function to Invoke Copy Function Worker
 def invoke_function(function_name, invocation_type, payload):
@@ -65,7 +46,7 @@ def invoke_function(function_name, invocation_type, payload):
 # Scan DynamoDB Table
 def scan_table(column_name, column_value):
     projection_expression = "copy_manifest_s3bucket, copy_manifest_skey, restore_date_completed, restore_job_tier, " \
-                            "restore_job_id "
+                            "restore_job_id , restored_archive_storage_class"
     ddb_items = []
     scan_kwargs = {
         'FilterExpression': Key(column_name).eq(column_value),
@@ -115,9 +96,29 @@ def lambda_handler(event, context):
         copy_job_manifest_bucket = data.get('copy_manifest_s3bucket')
         restore_job_completion_date = data.get('restore_date_completed')
         restore_job_retrieval_tier = data.get('restore_job_tier')
+        my_archive_storage_class = str(data.get('restored_archive_storage_class'))
         restore_jobid = data.get('restore_job_id')
         restorejobstatus = data.get('restore_job_status')
         manifest_flds_num = str(data.get('num_manifest_fields'))
+
+        # Define Copy Job Initiation Delay parameters based on Archive Class #
+        # Define Parameters #
+        standard_restore_copy_job_delay = None
+        bulk_restore_copy_job_delay = None
+
+        if my_archive_storage_class == 'GLACIER':
+            standard_restore_copy_job_delay = my_gfr_standard_retrieval_delay
+            bulk_restore_copy_job_delay = my_gfr_bulk_retrieval_delay
+            logger.info(
+                f"Delay time set for Glacier are Std: {standard_restore_copy_job_delay} and Bulk: {bulk_restore_copy_job_delay}")
+
+        elif my_archive_storage_class == 'DEEP_ARCHIVE' or 'GLACIER_AND_DEEP_ARCHIVE':
+            standard_restore_copy_job_delay = my_gda_standard_retrieval_delay
+            bulk_restore_copy_job_delay = my_gda_bulk_retrieval_delay
+            logger.info(
+                f"Delay time set for Deep_Archive are Std: {standard_restore_copy_job_delay} and Bulk: {bulk_restore_copy_job_delay}")
+
+
         # Add 48 hours to the restore_job_completion, to allow Glacier Restore Completion
         conv_to_timestamp = parser.parse(restore_job_completion_date)
         if restore_job_retrieval_tier == 'STANDARD':

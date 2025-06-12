@@ -12,6 +12,7 @@ target_bucket = str(os.environ['destination_bucket'])
 my_max_pool_connections = int(os.environ['max_pool_connections'])
 my_max_concurrency = int(os.environ['max_concurrency'])
 my_multipart_chunksize = int(os.environ['multipart_chunksize'])
+my_multipart_threshold = int(os.environ['multipart_threshold'])
 my_max_attempts = int(os.environ['max_attempts'])
 metadata_copy = str(os.environ['copy_metadata'])
 tagging_copy = str(os.environ['copy_tagging'])
@@ -29,7 +30,7 @@ logger.setLevel('INFO')
 # boto3.set_stream_logger("")
 
 # Set and Declare Configuration Parameters
-transfer_config = TransferConfig(max_concurrency=my_max_concurrency, multipart_chunksize=my_multipart_chunksize)
+transfer_config = TransferConfig(max_concurrency=my_max_concurrency, multipart_chunksize=my_multipart_chunksize, multipart_threshold=my_multipart_threshold)
 config = Config(max_pool_connections=my_max_pool_connections, retries = {'max_attempts': my_max_attempts})
 
 # Set and Declare Copy Arguments
