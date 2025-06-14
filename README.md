@@ -190,7 +190,6 @@ need to have the following resources:
 |  CopyTagging                        | Enable or disable copying source object tags to destination |
 |  StorageClass                       | Choose the desired destination storage class |
 |  RecipientEmail                     | User email address to receive Job notifications. Please remember to Confirm the Subscription |
-|  MaxInvKeys                         | Specify the maximum number of keys in each manifest and Batch operations Job. For larger individual object sizes, for example, tens or hundreds of gigabytes to terabytes, consider choosing a smaller value. |
 |  SDKThroughput         | AWS SDK parameter, maximum number of concurrent requests and number of connections the connection pool \[See Performance and Troubleshooting Section below\] |
 |  MultipartThreshold                 | Multipart Threshold size in bytes (MB*1024*1024) when the SDK switches to multipart transfers |
 |  MultipartChunkSize                 | AWS SDK parameter S3 multipart Chunk size in bytes (MB\*1024\*1024) that the SDK uses for multipart transfers. |
